@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>P/E Monitor</title>
+<script src="{{ url_for('static', filename='chart.umd.js') }}"></script>
+<style>
+:root{
+  --bg:#f8f9fa; --surface:#fff; --ink:#212529; --muted:#6c757d;
+  --border:#dee2e6; --accent:#0d6efd; --accent-2:#dc3545; --dark:#343a40;
+  --shadow:0 1px 4px rgba(0,0,0,.08); --radius:6px;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  font-family:system-ui,-apple-system,sans-serif;
+  max-width:1080px;margin:0 auto;padding:0 1rem 3rem;
+  background:var(--bg);color:var(--ink);
+}
+header{
+  position:sticky;top:0;z-index:10;background:var(--bg);
+  display:flex;align-items:center;justify-content:space-between;
+  padding:1rem 0;border-bottom:1px solid var(--border);
+}
+header h1{font-size:1.3rem;margin:0;display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap}
+header .meta{color:var(--muted);font-size:.8rem;font-weight:normal}
+button{
+  background:var(--dark);color:#fff;border:0;padding:.5rem 1rem;
+  border-radius:4px;cursor:pointer;font-size:.85rem;transition:background .15s;
+}
+button:hover{background:#495057}
+button:disabled{background:#adb5bd;cursor:wait}
+
+section.summary{margin:1.25rem 0}
+section.summary h2,section.charts h2{
+  font-size:.78rem;color:var(--muted);margin:0 0 .5rem;
+  text-transform:uppercase;letter-spacing:.5px;font-weight:600;
+}
+
+table{
+  width:100%;border-collapse:collapse;background:var(--surface);
+  border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow);
+}
+th{
+  background:var(--dark);color:#fff;padding:.55rem .75rem;text-align:left;
+  font-size:.78rem;font-weight:500;cursor:pointer;user-select:none;white-space:nowrap;
+  transition:background .15s;
+}
+th:hover{background:#495057}
+th .sort-ind{display:inline-block;width:1ch;color:#adb5bd;margin-left:.25rem}
+th.active .sort-ind{color:#fff}
+th.num{text-align:right}
+td{padding:.5rem .75rem;border-bottom:1px solid var(--border);font-size:.88rem}
+tr:last-child td{border-bottom:none}
+tr.row{cursor:pointer;transition:background .1s}
+tr.row:hover td{background:#eef4ff}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+td.ticker code{background:none;font-weight:600;color:var(--accent)}
+td.muted{color:#adb5bd;font-style:italic}
+
+section.charts{margin-top:2rem}
+.chart-card{
+  background:var(--surface);padding:1rem 1.25rem;margin:1rem 0;
+  border-radius:var(--radius);box-shadow:var(--shadow);
+  scroll-margin-top:5rem;
+}
+.chart-card h3{font-size:1rem;margin:0 0 .5rem;display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap}
+.chart-card h3 code{color:var(--accent);font-size:1.05rem}
+.latest{color:var(--muted);font-size:.82rem;font-weight:normal;font-variant-numeric:tabular-nums}
+.empty{color:#adb5bd;font-size:.85rem;padding:2rem 0;text-align:center}
+.canvas-wrap{position:relative;height:280px}
+canvas{width:100%!important;height:100%!important}
+.back-to-top{
+  display:inline-block;margin-top:.5rem;font-size:.78rem;
+  color:var(--muted);text-decoration:none;
+}
+.back-to-top:hover{color:var(--accent)}
+
+@keyframes flash{
+  0%{box-shadow:0 0 0 3px var(--accent),var(--shadow)}
+  100%{box-shadow:0 0 0 0 transparent,var(--shadow)}
+}
+.flash{animation:flash 1.4s ease-out}
+</style>
+</head>
+<body>
+<header id="top">
+  <h1>P/E Monitor <span class="meta" id="meta"></span></h1>
+  <button id="refresh-btn" onclick="refresh()">Refresh now</button>
+</header>
+
+<section class="summary">
+  <h2>Snapshot</h2>
+  <table id="summary-table">
+    <thead>
+      <tr>
+        <th data-key="ticker">Ticker<span class="sort-ind"></span></th>
+        <th data-key="name">Company<span class="sort-ind"></span></th>
+        <th data-key="price" class="num">Price<span class="sort-ind"></span></th>
+        <th data-key="ttm_pe" class="num">TTM P/E<span class="sort-ind"></span></th>
+        <th data-key="forward_pe" class="num active">Forward P/E<span class="sort-ind">▲</span></th>
+      </tr>
+    </thead>
+    <tbody id="summary-body"></tbody>
+  </table>
+</section>
+
+<section class="charts">
+  <h2>History</h2>
+  {% for t in tickers %}
+  <div class="chart-card" id="chart-card-{{ t }}">
+    <h3><code>{{ t }}</code><span class="latest" id="latest-{{ t }}"></span></h3>
+    <div class="canvas-wrap" id="container-{{ t }}"><canvas id="chart-{{ t }}"></canvas></div>
+    <a href="#top" class="back-to-top">↑ Back to top</a>
+  </div>
+  {% endfor %}
+</section>
+
+<script>
+const tickers = {{ tickers | tojson }};
+const CURRENCY_SYMBOLS = {USD:"$",HKD:"HK$",EUR:"€",GBP:"£",CNY:"¥",JPY:"¥",TWD:"NT$",KRW:"₩"};
+const fmt = v => (v == null ? "N/A" : Number(v).toFixed(2));
+const fmtPrice = (price, currency) => {
+  if (price == null) return "N/A";
+  const sym = CURRENCY_SYMBOLS[currency] || (currency ? currency + " " : "$");
+  return `${sym}${Number(price).toFixed(2)}`;
+};
+
+let snapshotData = [];
+let sortKey = "forward_pe";
+let sortDir = 1;
+
+async function loadSnapshot() {
+  const res = await fetch("/api/latest");
+  snapshotData = await res.json();
+  renderTable();
+  const dates = snapshotData.map(r => r.date).filter(Boolean).sort();
+  const latest = dates[dates.length - 1] || "no data yet";
+  document.getElementById("meta").textContent = `· ${tickers.length} tickers · last updated ${latest}`;
+}
+
+function renderTable() {
+  const tbody = document.getElementById("summary-body");
+  const rows = [...snapshotData].sort((a, b) => {
+    const av = a[sortKey], bv = b[sortKey];
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    if (typeof av === "string") return sortDir * av.localeCompare(bv);
+    return sortDir * (av - bv);
+  });
+  tbody.innerHTML = rows.map(r => `
+    <tr class="row" data-ticker="${r.ticker}">
+      <td class="ticker"><code>${r.ticker}</code></td>
+      <td>${r.name ? escapeHtml(r.name) : '<span class="muted">—</span>'}</td>
+      <td class="num">${fmtPrice(r.price, r.currency)}</td>
+      <td class="num">${fmt(r.ttm_pe)}</td>
+      <td class="num">${fmt(r.forward_pe)}</td>
+    </tr>
+  `).join("");
+  document.querySelectorAll("th[data-key]").forEach(th => {
+    th.classList.remove("active");
+    th.querySelector(".sort-ind").textContent = "";
+  });
+  const activeTh = document.querySelector(`th[data-key="${sortKey}"]`);
+  if (activeTh) {
+    activeTh.classList.add("active");
+    activeTh.querySelector(".sort-ind").textContent = sortDir === 1 ? "▲" : "▼";
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+document.addEventListener("click", e => {
+  const th = e.target.closest("th[data-key]");
+  if (th) {
+    const key = th.dataset.key;
+    if (sortKey === key) sortDir = -sortDir;
+    else { sortKey = key; sortDir = 1; }
+    renderTable();
+    return;
+  }
+  const row = e.target.closest("tr.row");
+  if (row) {
+    const t = row.dataset.ticker;
+    const target = document.getElementById(`chart-card-${t}`);
+    if (target) {
+      target.scrollIntoView({behavior: "smooth", block: "start"});
+      target.classList.remove("flash");
+      void target.offsetWidth;
+      target.classList.add("flash");
+    }
+  }
+});
+
+async function loadChart(ticker) {
+  const res = await fetch(`/api/history/${ticker}`);
+  const rows = await res.json();
+  const container = document.getElementById(`container-${ticker}`);
+  const latestEl = document.getElementById(`latest-${ticker}`);
+
+  if (!rows.length) {
+    container.innerHTML = '<div class="empty">No data yet — first snapshot will appear after the next crawl.</div>';
+    latestEl.textContent = "";
+    return;
+  }
+  const last = rows[rows.length - 1];
+  latestEl.textContent =
+    `${last.name || ""} · ${fmtPrice(last.price, last.currency)} · TTM ${fmt(last.ttm_pe)} · Fwd ${fmt(last.forward_pe)} · ${last.date}`;
+
+  container.innerHTML = `<canvas id="chart-${ticker}"></canvas>`;
+  const ctx = document.getElementById(`chart-${ticker}`);
+  new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: rows.map(r => r.date),
+      datasets: [
+        {label: "TTM P/E", data: rows.map(r => r.ttm_pe), borderColor: "#0d6efd", backgroundColor: "#0d6efd", tension: 0.2, spanGaps: true},
+        {label: "Forward P/E", data: rows.map(r => r.forward_pe), borderColor: "#dc3545", backgroundColor: "#dc3545", tension: 0.2, spanGaps: true},
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: {mode: "index", intersect: false},
+      scales: {y: {beginAtZero: false}},
+    },
+  });
+}
+
+async function refresh() {
+  const btn = document.getElementById("refresh-btn");
+  btn.disabled = true;
+  btn.textContent = "Fetching…";
+  try {
+    await fetch("/api/refresh", {method: "POST"});
+    await loadSnapshot();
+    for (const t of tickers) await loadChart(t);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Refresh now";
+  }
+}
+
+(async () => {
+  await loadSnapshot();
+  for (const t of tickers) await loadChart(t);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -fsSL https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.js -o /root/repos/monitors/pe_monitor/static/chart.umd.js)",
+      "Bash(venv/bin/python -c ' *)",
+      "Bash(venv/bin/pip install *)"
+    ]
+  }
+}

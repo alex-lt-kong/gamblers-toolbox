@@ -1,0 +1,43 @@
+# P/E Monitor configuration
+
+tickers = [
+  "0700.HK",
+  "AMD",
+  "AMZN",
+  "ASML",
+  "AVGO",
+  "BABA",
+  "BAC",
+  "BIDU",
+  "BRK-B",
+  "GOOG",
+  "KHC",
+  "LI",
+  "MCD",
+  "META",
+  "MSFT",
+  "MU",
+  "NIO",
+  "NVDA",
+  "NYT",
+  "PDD",
+  "TSM",
+  "V",
+  "WMT",
+  "KO",
+  "ORCL",
+  "UNH",
+]
+
+# How often the background crawler fetches fresh P/E data (seconds).
+# 86400 = once per day.
+fetch_interval_seconds = 86400
+
+# Where snapshots are persisted (SQLite database file, relative to this file).
+database_path = "pe_history.db"
+
+# Network binding:
+#   "127.0.0.1" - localhost only (recommended for personal use)
+#   "0.0.0.0"   - all interfaces; the dashboard has no auth, so only do this on a trusted LAN
+host = "127.0.0.1"
+port = 5000

@@ -1,0 +1,12 @@
+[
+  {
+    "date": "2026-05-07",
+    "name": "Alphabet Inc.",
+    "currency": "USD",
+    "price": 395.14,
+    "trailing_eps": 13.1,
+    "forward_eps": 14.36536,
+    "ttm_pe": 30.163359,
+    "forward_pe": 27.506447
+  }
+]

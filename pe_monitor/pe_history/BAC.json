@@ -1,0 +1,12 @@
+[
+  {
+    "date": "2026-05-07",
+    "name": "Bank of America Corporation",
+    "currency": "USD",
+    "price": 53.6,
+    "trailing_eps": 4.03,
+    "forward_eps": 5.04212,
+    "ttm_pe": 13.300247,
+    "forward_pe": 10.630449
+  }
+]
