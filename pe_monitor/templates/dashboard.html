@@ -81,8 +81,9 @@ canvas{width:100%!important;height:100%!important}
 
 <section class="charts">
   <h2>History</h2>
+  <p id="history-placeholder" class="empty">Check one or more tickers above to view their historical chart.</p>
   {% for t in tickers %}
-  <div class="chart-card" id="chart-card-{{ t }}">
+  <div class="chart-card" id="chart-card-{{ t }}" style="display:none">
     <h3><code>{{ t }}</code><span class="latest" id="latest-{{ t }}"></span></h3>
     <div class="canvas-wrap" id="container-{{ t }}"><canvas id="chart-{{ t }}"></canvas></div>
     <a href="#top" class="back-to-top">↑ Back to top</a>
@@ -97,13 +98,15 @@ const fmt = v => (v == null ? "N/A" : Number(v).toFixed(2));
 const fmtPrice = (price, currency) => {
   if (price == null) return "N/A";
   const sym = CURRENCY_SYMBOLS[currency] || (currency ? currency + " " : "$");
-  return `${sym}${Number(price).toFixed(2)}`;
+  return `${sym}${Number(price).toLocaleString("en-US", {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
 };
 
 let gridApi;
+const visibleCharts = new Set();
+const chartInstances = new Map();
 
 const COLUMN_DEFS = [
-  {field: "ticker", headerName: "Ticker", width: 100, pinned: "left", cellClass: "ticker-cell"},
+  {field: "ticker", headerName: "Ticker", width: 140, pinned: "left", cellClass: "ticker-cell"},
   {field: "name", headerName: "Company", flex: 2, valueFormatter: p => p.value || "—"},
   {field: "price", headerName: "Price", type: "numericColumn", flex: 1.2,
     valueFormatter: p => fmtPrice(p.data.price, p.data.currency)},
@@ -117,6 +120,50 @@ const COLUMN_DEFS = [
     valueFormatter: p => fmt(p.value), sort: "asc"},
 ];
 
+function updateHistoryPlaceholder() {
+  const ph = document.getElementById("history-placeholder");
+  if (ph) ph.style.display = visibleCharts.size === 0 ? "" : "none";
+}
+
+function showChart(ticker) {
+  const card = document.getElementById(`chart-card-${ticker}`);
+  if (!card) return;
+  card.style.display = "";
+  visibleCharts.add(ticker);
+  loadChart(ticker);
+}
+
+function hideChart(ticker) {
+  const card = document.getElementById(`chart-card-${ticker}`);
+  if (!card) return;
+  card.style.display = "none";
+  const inst = chartInstances.get(ticker);
+  if (inst) { inst.destroy(); chartInstances.delete(ticker); }
+  visibleCharts.delete(ticker);
+}
+
+function onSelectionChanged() {
+  const selected = new Set(gridApi.getSelectedRows().map(r => r.ticker));
+  let newlyAdded = null;
+  for (const t of selected) {
+    if (!visibleCharts.has(t)) { showChart(t); newlyAdded = t; }
+  }
+  for (const t of [...visibleCharts]) {
+    if (!selected.has(t)) hideChart(t);
+  }
+  updateHistoryPlaceholder();
+  if (newlyAdded) {
+    requestAnimationFrame(() => {
+      const card = document.getElementById(`chart-card-${newlyAdded}`);
+      if (!card) return;
+      card.scrollIntoView({behavior: "smooth", block: "start"});
+      card.classList.remove("flash");
+      void card.offsetWidth;
+      card.classList.add("flash");
+    });
+  }
+}
+
 function ensureGrid() {
   if (gridApi) return;
   agGrid.ModuleRegistry.registerModules([agGrid.AllCommunityModule]);
@@ -126,14 +173,14 @@ function ensureGrid() {
     rowData: [],
     domLayout: "autoHeight",
     defaultColDef: {resizable: true, sortable: true, filter: true},
-    onRowClicked: ({data}) => {
-      const target = document.getElementById(`chart-card-${data.ticker}`);
-      if (!target) return;
-      target.scrollIntoView({behavior: "smooth", block: "start"});
-      target.classList.remove("flash");
-      void target.offsetWidth;
-      target.classList.add("flash");
+    rowSelection: {
+      mode: "multiRow",
+      checkboxes: true,
+      headerCheckbox: false,
+      enableClickSelection: false,
     },
+    getRowId: ({data}) => data.ticker,
+    onSelectionChanged,
   });
 }
 
@@ -160,6 +207,9 @@ async function loadChart(ticker) {
   const container = document.getElementById(`container-${ticker}`);
   const latestEl = document.getElementById(`latest-${ticker}`);
 
+  const prev = chartInstances.get(ticker);
+  if (prev) { prev.destroy(); chartInstances.delete(ticker); }
+
   if (!rows.length) {
     container.innerHTML = '<div class="empty">No data yet — first snapshot will appear after the next crawl.</div>';
     latestEl.textContent = "";
@@ -173,7 +223,7 @@ async function loadChart(ticker) {
   container.innerHTML = `<canvas id="chart-${ticker}"></canvas>`;
   const ctx = document.getElementById(`chart-${ticker}`);
   const lineStyle = {tension: 0.2, spanGaps: true, borderWidth: 1.5, pointRadius: 1.5, pointHoverRadius: 4};
-  new Chart(ctx, {
+  const chart = new Chart(ctx, {
     type: "line",
     data: {
       labels: plot.map(r => r.date),
@@ -189,6 +239,7 @@ async function loadChart(ticker) {
       scales: {y: {beginAtZero: false}},
     },
   });
+  chartInstances.set(ticker, chart);
 }
 
 async function refresh() {
@@ -198,7 +249,7 @@ async function refresh() {
   try {
     await fetch("/api/refresh", {method: "POST"});
     await loadSnapshot();
-    for (const t of tickers) await loadChart(t);
+    for (const t of visibleCharts) await loadChart(t);
   } finally {
     btn.disabled = false;
     btn.textContent = "Refresh now";
@@ -206,8 +257,8 @@ async function refresh() {
 }
 
 (async () => {
+  updateHistoryPlaceholder();
   await loadSnapshot();
-  for (const t of tickers) await loadChart(t);
 })();
 </script>
 </body>
