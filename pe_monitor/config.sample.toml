@@ -1,4 +1,4 @@
-# P/E Monitor configuration
+# P/E Monitor sample config — copy to config.toml and edit.
 
 tickers = [
   "0700.HK",

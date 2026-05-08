@@ -5,5 +5,5 @@ pe_history.db-wal
 pe_history.db-shm
 pe_history/
 
-# Local config overrides
-config.local.toml
+# Real config (copy from config.sample.toml)
+config.toml
