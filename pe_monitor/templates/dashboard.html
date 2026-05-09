@@ -45,6 +45,8 @@ section.summary h2,section.charts h2{
 #summary-grid{box-shadow:var(--shadow);border-radius:var(--radius);overflow:hidden}
 #summary-grid .ag-row{cursor:pointer}
 #summary-grid .ticker-cell{font-weight:600;color:var(--accent);font-family:ui-monospace,Menlo,monospace}
+#summary-grid .cell-link{color:inherit;text-decoration:none}
+#summary-grid .cell-link:hover{text-decoration:underline}
 
 .chart-card{
   background:var(--surface);padding:1rem 1.25rem;margin:1rem 0;
@@ -109,19 +111,37 @@ let gridApi;
 const visibleCharts = new Set();
 const chartInstances = new Map();
 
+const Y = {
+  quote:    t => `https://finance.yahoo.com/quote/${encodeURIComponent(t)}/`,
+  stats:    t => `https://finance.yahoo.com/quote/${encodeURIComponent(t)}/key-statistics/`,
+  analysis: t => `https://finance.yahoo.com/quote/${encodeURIComponent(t)}/analysis/`,
+};
+
+const escapeHtml = s => String(s).replace(/[&<>"']/g, c =>
+  ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+function linkCell(text, url) {
+  if (text == null || text === "" || text === "N/A" || text === "—") return text || "";
+  return `<a href="${url}" target="_blank" rel="noopener" class="cell-link">${text}</a>`;
+}
+
 const COLUMN_DEFS = [
-  {field: "ticker", headerName: "Ticker", width: 140, pinned: "left", cellClass: "ticker-cell"},
-  {field: "name", headerName: "Company", flex: 2, valueFormatter: p => p.value || "—"},
+  {field: "ticker", headerName: "Ticker", width: 140, pinned: "left", cellClass: "ticker-cell",
+    cellRenderer: p => `<a href="${Y.quote(p.value)}" target="_blank" rel="noopener" class="cell-link">${p.value}</a>`},
+  {field: "name", headerName: "Company", flex: 2,
+    cellRenderer: p => p.value
+      ? `<a href="${Y.quote(p.data.ticker)}" target="_blank" rel="noopener" class="cell-link">${escapeHtml(p.value)}</a>`
+      : "—"},
   {field: "price", headerName: "Price", type: "numericColumn", flex: 1.2,
-    valueFormatter: p => fmtPrice(p.data.price, p.data.currency)},
+    cellRenderer: p => linkCell(fmtPrice(p.data.price, p.data.currency), Y.quote(p.data.ticker))},
   {field: "trailing_eps", headerName: "TTM EPS", type: "numericColumn", flex: 1,
-    valueFormatter: p => fmt(p.value)},
+    cellRenderer: p => linkCell(fmt(p.value), Y.stats(p.data.ticker))},
   {field: "ttm_pe", headerName: "TTM P/E", type: "numericColumn", flex: 1,
-    valueFormatter: p => fmt(p.value)},
+    cellRenderer: p => linkCell(fmt(p.value), Y.stats(p.data.ticker))},
   {field: "forward_eps", headerName: "Fwd EPS", type: "numericColumn", flex: 1,
-    valueFormatter: p => fmt(p.value)},
+    cellRenderer: p => linkCell(fmt(p.value), Y.analysis(p.data.ticker))},
   {field: "forward_pe", headerName: "Fwd P/E", type: "numericColumn", flex: 1,
-    valueFormatter: p => fmt(p.value), sort: "asc"},
+    cellRenderer: p => linkCell(fmt(p.value), Y.analysis(p.data.ticker)), sort: "asc"},
 ];
 
 function updateHistoryPlaceholder() {
