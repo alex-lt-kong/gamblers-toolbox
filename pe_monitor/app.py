@@ -3,7 +3,7 @@
 from flask import Flask, abort, jsonify, render_template
 
 import config
-import fetcher
+import scheduler
 import storage
 
 CONFIG = config.load_config()
@@ -37,12 +37,12 @@ def api_latest():
 
 @app.route("/api/refresh", methods=["POST"])
 def api_refresh():
-    fetcher.snapshot_all(CONFIG["tickers"], CONFIG["database_path"])
+    scheduler.snapshot_all(CONFIG["tickers"], CONFIG["database_path"])
     return jsonify({"status": "ok"})
 
 
 if __name__ == "__main__":
-    fetcher.start_scheduler(
+    scheduler.start_scheduler(
         CONFIG["tickers"],
         CONFIG["database_path"],
         CONFIG["fetch_interval_seconds"],
