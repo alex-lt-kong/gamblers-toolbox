@@ -8,7 +8,8 @@ Run manually:
 Per-ticker logic lives in the fetcher backends (see fetcher.py); this script
 is just dispatch + storage. Forward P/E cannot be backfilled (analyst
 consensus history isn't free), so those fields are left null in backfilled
-rows. Existing snapshots are never overwritten — only missing dates are added.
+rows. Live-snapshot values are preserved; backfill fills NULL columns of
+existing rows (e.g. populating volume on dates that predate the column).
 """
 
 import argparse
@@ -18,18 +19,20 @@ import fetcher
 import storage
 
 
-def backfill(ticker: str, db_path: str, days: int) -> tuple[int, str]:
+def backfill(ticker: str, db_path: str, days: int) -> tuple[int, int, str]:
     """Compute historical TTM P/E and merge into storage.
 
-    Returns (rows_added, status_message).
+    Returns (inserted, filled, status). `filled` counts existing rows that
+    had at least one NULL column populated by this backfill (e.g. volume
+    being added to dates that predate the column).
     """
     rows, status = fetcher.get_fetcher(ticker).backfill_history(ticker, days)
     if not rows:
-        return 0, status
-    added = storage.merge_history(db_path, ticker, rows)
-    if added == 0:
-        return 0, "all dates already present in storage"
-    return added, "ok"
+        return 0, 0, status
+    inserted, filled = storage.merge_history(db_path, ticker, rows)
+    if inserted == 0 and filled == 0:
+        return 0, 0, "all dates already current"
+    return inserted, filled, "ok"
 
 
 def main() -> None:
@@ -51,16 +54,23 @@ def main() -> None:
     print(f"Backfilling {len(tickers)} ticker(s), up to {args.days} days each...\n")
     succeeded, skipped = 0, 0
     for t in tickers:
+        tag = fetcher.get_fetcher(t).__class__.__name__.removesuffix("Fetcher").lower()
+        prefix = f"  {t} [{tag}]"
         try:
-            added, status = backfill(t, cfg["database_path"], args.days)
-            if added > 0:
-                print(f"  {t}: +{added} rows")
-                succeeded += 1
-            else:
-                print(f"  {t}: skipped — {status}")
+            inserted, filled, status = backfill(t, cfg["database_path"], args.days)
+            if inserted == 0 and filled == 0:
+                print(f"{prefix}: skipped — {status}")
                 skipped += 1
+            else:
+                parts = []
+                if inserted:
+                    parts.append(f"+{inserted} new")
+                if filled:
+                    parts.append(f"+{filled} filled")
+                print(f"{prefix}: {', '.join(parts)}")
+                succeeded += 1
         except Exception as e:
-            print(f"  {t}: failed — {e}")
+            print(f"{prefix}: failed — {e}")
             skipped += 1
     print(f"\nDone. {succeeded} succeeded, {skipped} skipped/failed.")
 

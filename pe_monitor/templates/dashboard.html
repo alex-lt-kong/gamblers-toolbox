@@ -65,7 +65,9 @@ section.summary h2,section.charts h2{
 .chart-card h3 code{color:var(--accent);font-size:1.05rem}
 .latest{color:var(--muted);font-size:.82rem;font-weight:normal;font-variant-numeric:tabular-nums}
 .empty{color:#adb5bd;font-size:.85rem;padding:2rem 0;text-align:center}
-.canvas-wrap{position:relative;height:280px}
+.canvas-wrap{position:relative}
+.canvas-wrap.pe-wrap{height:240px}
+.canvas-wrap.vol-wrap{height:75px}
 canvas{width:100%!important;height:100%!important}
 .charts-toolbar{
   display:flex;align-items:center;justify-content:space-between;
@@ -116,7 +118,8 @@ canvas{width:100%!important;height:100%!important}
   {% for t in tickers %}
   <div class="chart-card" id="chart-card-{{ t }}" style="display:none">
     <h3><code>{{ t }}</code><span class="latest" id="latest-{{ t }}"></span></h3>
-    <div class="canvas-wrap" id="container-{{ t }}"><canvas id="chart-{{ t }}"></canvas></div>
+    <div class="canvas-wrap pe-wrap" id="container-{{ t }}"><canvas id="chart-{{ t }}"></canvas></div>
+    <div class="canvas-wrap vol-wrap" id="vol-container-{{ t }}"><canvas id="chart-vol-{{ t }}"></canvas></div>
   </div>
   {% endfor %}
 </section>
@@ -132,6 +135,16 @@ const fmtPrice = (price, currency) => {
   const sym = CURRENCY_SYMBOLS[currency] || (currency ? currency + " " : "$");
   return `${sym}${Number(price).toLocaleString("en-US", {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
 };
+const fmtVolume = v => {
+  if (v == null) return "N/A";
+  v = Number(v);
+  if (v >= 1e12) return (v/1e12).toFixed(2) + "T";
+  if (v >= 1e9)  return (v/1e9).toFixed(2)  + "B";
+  if (v >= 1e6)  return (v/1e6).toFixed(2)  + "M";
+  if (v >= 1e3)  return (v/1e3).toFixed(1)  + "K";
+  return String(Math.round(v));
+};
+const Y_AXIS_WIDTH = 52;  // pin both charts so date axes line up
 
 let gridApi;
 const visibleCharts = new Set();
@@ -195,12 +208,19 @@ function showChart(ticker) {
   loadChart(ticker);
 }
 
+function destroyCharts(ticker) {
+  const inst = chartInstances.get(ticker);
+  if (!inst) return;
+  inst.pe?.destroy();
+  inst.vol?.destroy();
+  chartInstances.delete(ticker);
+}
+
 function hideChart(ticker) {
   const card = document.getElementById(`chart-card-${ticker}`);
   if (!card) return;
   card.style.display = "none";
-  const inst = chartInstances.get(ticker);
-  if (inst) { inst.destroy(); chartInstances.delete(ticker); }
+  destroyCharts(ticker);
   visibleCharts.delete(ticker);
 }
 
@@ -270,28 +290,37 @@ function setRange(range) {
 async function loadChart(ticker) {
   const res = await fetch(`/api/history/${ticker}?range=${currentRange}`);
   const rows = await res.json();
-  const container = document.getElementById(`container-${ticker}`);
+  const peContainer = document.getElementById(`container-${ticker}`);
+  const volContainer = document.getElementById(`vol-container-${ticker}`);
   const latestEl = document.getElementById(`latest-${ticker}`);
 
-  const prev = chartInstances.get(ticker);
-  if (prev) { prev.destroy(); chartInstances.delete(ticker); }
+  destroyCharts(ticker);
 
   if (!rows.length) {
-    container.innerHTML = '<div class="empty">No data yet — first snapshot will appear after the next crawl.</div>';
+    peContainer.innerHTML = '<div class="empty">No data yet — first snapshot will appear after the next crawl.</div>';
+    volContainer.innerHTML = "";
     latestEl.textContent = "";
     return;
   }
   const last = rows[rows.length - 1];
   latestEl.textContent =
-    `${last.name || ""} · ${fmtPrice(last.price, last.currency)} · TTM ${fmt(last.ttm_pe)} · Fwd ${fmt(last.forward_pe)} · ${last.date}`;
+    `${last.name || ""} · ${fmtPrice(last.price, last.currency)} · ` +
+    `TTM ${fmt(last.ttm_pe)} · Fwd ${fmt(last.forward_pe)} · ` +
+    `Vol ${fmtVolume(last.volume)} · ${last.date}`;
 
-  container.innerHTML = `<canvas id="chart-${ticker}"></canvas>`;
-  const ctx = document.getElementById(`chart-${ticker}`);
+  peContainer.innerHTML = `<canvas id="chart-${ticker}"></canvas>`;
+  volContainer.innerHTML = `<canvas id="chart-vol-${ticker}"></canvas>`;
+  const peCtx = document.getElementById(`chart-${ticker}`);
+  const volCtx = document.getElementById(`chart-vol-${ticker}`);
+
+  const labels = rows.map(r => r.date);
+  const pinWidth = axis => { axis.width = Y_AXIS_WIDTH; };
   const lineStyle = {tension: 0.2, spanGaps: true, borderWidth: 1.5, pointRadius: 1.5, pointHoverRadius: 4};
-  const chart = new Chart(ctx, {
+
+  const peChart = new Chart(peCtx, {
     type: "line",
     data: {
-      labels: rows.map(r => r.date),
+      labels,
       datasets: [
         {label: "TTM P/E", data: rows.map(r => r.ttm_pe), borderColor: "#0d6efd", backgroundColor: "#0d6efd", ...lineStyle},
         {label: "Forward P/E", data: rows.map(r => r.forward_pe), borderColor: "#dc3545", backgroundColor: "#dc3545", ...lineStyle},
@@ -301,10 +330,44 @@ async function loadChart(ticker) {
       responsive: true,
       maintainAspectRatio: false,
       interaction: {mode: "index", intersect: false},
-      scales: {y: {beginAtZero: false}},
+      scales: {
+        y: {beginAtZero: false, afterFit: pinWidth},
+        x: {ticks: {display: false}, grid: {display: false}},
+      },
     },
   });
-  chartInstances.set(ticker, chart);
+
+  const volChart = new Chart(volCtx, {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [{
+        label: "Volume",
+        data: rows.map(r => r.volume),
+        backgroundColor: "rgba(108, 117, 125, 0.55)",
+        borderWidth: 0,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: {mode: "index", intersect: false},
+      plugins: {
+        legend: {display: false},
+        tooltip: {callbacks: {label: c => `Volume: ${fmtVolume(c.parsed.y)}`}},
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          afterFit: pinWidth,
+          ticks: {callback: fmtVolume, maxTicksLimit: 3},
+        },
+        x: {ticks: {maxRotation: 0, autoSkip: true, maxTicksLimit: 8}},
+      },
+    },
+  });
+
+  chartInstances.set(ticker, {pe: peChart, vol: volChart});
 }
 
 async function refresh() {

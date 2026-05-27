@@ -44,6 +44,11 @@ class YfinanceFetcher:
         info = yt.info
 
         price = self._first(info, "currentPrice", "regularMarketPrice")
+        # yfinance returns 0 for regularMarketVolume on KR tickers (known
+        # quirk; the average* fields are populated). Treat 0 as missing so
+        # we don't overwrite a real historical value with zero.
+        raw_volume = self._first(info, "regularMarketVolume", "volume")
+        volume = int(raw_volume) if raw_volume else None
         trailing_eps = self._first(info, "trailingEps", "epsTrailingTwelveMonths")
         forward_eps = self._first(info, "forwardEps", "epsForward")
         ttm_pe = info.get("trailingPE")
@@ -75,6 +80,7 @@ class YfinanceFetcher:
             "name": info.get("longName", ""),
             "currency": trade_ccy,
             "price": price,
+            "volume": volume,
             "trailing_eps": trailing_eps,
             "forward_eps": forward_eps,
             "ttm_pe": ttm_pe,
@@ -95,25 +101,28 @@ class YfinanceFetcher:
         prices = yt.history(period=f"{days}d", auto_adjust=True)
         if prices.empty:
             return [], "no price history from yfinance"
-        closes = prices["Close"]
 
         eps_history = self._eps_history(yt, true_ttm_eps)
         if len(eps_history) < 4:
             return [], f"only {len(eps_history)} quarter(s) of EPS available (need 4)"
 
         rows = []
-        for ts, price in closes.items():
+        for ts, prow in prices.iterrows():
             d = ts.date() if hasattr(ts, "date") else ts
             applicable = [eps for rd, eps in eps_history if rd <= d]
             if len(applicable) < 4:
                 continue
+            price = float(prow["Close"])
+            raw_vol = prow.get("Volume")
+            volume = int(raw_vol) if raw_vol is not None and pd.notna(raw_vol) else None
             ttm_eps = sum(applicable[-4:])
-            ttm_pe = float(price) / ttm_eps if ttm_eps > 0 else None
+            ttm_pe = price / ttm_eps if ttm_eps > 0 else None
             rows.append({
                 "date": d.isoformat(),
                 "name": name,
                 "currency": currency,
-                "price": float(price),
+                "price": price,
+                "volume": volume,
                 "trailing_eps": ttm_eps,
                 "forward_eps": None,
                 "ttm_pe": ttm_pe,

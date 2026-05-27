@@ -40,17 +40,29 @@ def _downsample(rows: list[dict], bucket_days: int) -> list[dict]:
         return rows
     out = []
     current_bucket = None
-    last_in_bucket = None
+    bucket_rows: list[dict] = []
     for r in rows:
         b = date.fromisoformat(r["date"]).toordinal() // bucket_days
-        if current_bucket is None or b != current_bucket:
-            if last_in_bucket is not None:
-                out.append(last_in_bucket)
+        if current_bucket is None:
             current_bucket = b
-        last_in_bucket = r
-    if last_in_bucket is not None:
-        out.append(last_in_bucket)
+        if b != current_bucket:
+            out.append(_collapse_bucket(bucket_rows))
+            current_bucket = b
+            bucket_rows = []
+        bucket_rows.append(r)
+    if bucket_rows:
+        out.append(_collapse_bucket(bucket_rows))
     return out
+
+
+def _collapse_bucket(bucket_rows: list[dict]) -> dict:
+    """Collapse a bucket of daily rows into one. Most fields take the last
+    (most recent) value; volume sums so the bar represents period volume."""
+    result = dict(bucket_rows[-1])
+    vols = [r.get("volume") for r in bucket_rows]
+    vols = [v for v in vols if v is not None]
+    result["volume"] = sum(vols) if vols else None
+    return result
 
 
 @app.route("/")
