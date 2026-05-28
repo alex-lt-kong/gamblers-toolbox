@@ -379,13 +379,21 @@ async function loadChart(ticker) {
   const pinWidth = axis => { axis.width = Y_AXIS_WIDTH; };
   const lineStyle = {tension: 0.2, spanGaps: true, borderWidth: 1.5, pointRadius: 1.5, pointHoverRadius: 4};
 
+  // Forward P/E rows between Wayback anchors are server-side interpolated
+  // from implied EPS + daily price. We hide point markers on interpolated
+  // segments so real anchors stand out as dots; the line itself stays
+  // continuous so the trend reads cleanly.
+  const fwdPeInterpRadius = rows.map(r => r.forward_pe_interpolated ? 0 : 1.5);
+  const fwdPeInterpHover  = rows.map(r => r.forward_pe_interpolated ? 0 : 4);
+
   const peChart = new Chart(peCtx, {
     type: "line",
     data: {
       labels,
       datasets: [
         {label: "TTM P/E", data: rows.map(r => r.ttm_pe), borderColor: "#0d6efd", backgroundColor: "#0d6efd", ...lineStyle},
-        {label: "Forward P/E", data: rows.map(r => r.forward_pe), borderColor: "#dc3545", backgroundColor: "#dc3545", ...lineStyle},
+        {label: "Forward P/E", data: rows.map(r => r.forward_pe), borderColor: "#dc3545", backgroundColor: "#dc3545", ...lineStyle,
+         pointRadius: fwdPeInterpRadius, pointHoverRadius: fwdPeInterpHover},
       ],
     },
     options: {

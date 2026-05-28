@@ -65,6 +65,54 @@ def _collapse_bucket(bucket_rows: list[dict]) -> dict:
     return result
 
 
+def _interpolate_forward_pe(rows: list[dict]) -> list[dict]:
+    """Fill NULL forward_pe values between two real anchors by interpolating
+    implied forward EPS, then deriving fwd P/E from each day's actual price.
+
+    Why this works: at any anchor date d we know both Price(d) and FwdPE(d)
+    from real data, so ForwardEPS(d) = Price(d) / FwdPE(d) is determined.
+    Between earnings reports, analyst consensus EPS moves slowly (typically
+    1-3% per quarter), so a linear blend of EPS between anchors is a much
+    better assumption than a linear blend of FwdPE itself — the latter
+    would ignore the daily price movements that drive most fwd-P/E variance
+    between earnings.
+
+    Each gap row gets `forward_pe_interpolated: True`; real rows get False.
+    Days outside the [first anchor, last anchor] window stay NULL — better
+    honest empty than fake-confident extrapolation off the edges.
+    """
+    for r in rows:
+        r["forward_pe_interpolated"] = False
+    anchors = [
+        i for i, r in enumerate(rows)
+        if r.get("forward_pe") is not None and r.get("price")
+    ]
+    if len(anchors) < 2:
+        return rows
+    for ai in range(len(anchors) - 1):
+        L_i, R_i = anchors[ai], anchors[ai + 1]
+        if R_i == L_i + 1:
+            continue
+        L, R = rows[L_i], rows[R_i]
+        L_eps = L["price"] / L["forward_pe"]
+        R_eps = R["price"] / R["forward_pe"]
+        L_ord = date.fromisoformat(L["date"]).toordinal()
+        span = date.fromisoformat(R["date"]).toordinal() - L_ord
+        if span <= 0:
+            continue
+        for i in range(L_i + 1, R_i):
+            row = rows[i]
+            if not row.get("price"):
+                continue
+            t = (date.fromisoformat(row["date"]).toordinal() - L_ord) / span
+            eps = L_eps + t * (R_eps - L_eps)
+            if eps <= 0:
+                continue  # EPS sign change — linear blend isn't meaningful
+            row["forward_pe"] = row["price"] / eps
+            row["forward_pe_interpolated"] = True
+    return rows
+
+
 @app.route("/")
 def dashboard():
     return render_template(
@@ -116,6 +164,7 @@ def api_history(ticker: str):
         CONFIG["database_path"], ticker,
         start_date=start_date, end_date=end_date,
     )
+    rows = _interpolate_forward_pe(rows)
     return jsonify(_downsample(rows, _pick_bucket(len(rows))))
 
 
