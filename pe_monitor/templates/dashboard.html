@@ -16,6 +16,8 @@
   --bg:#f8f9fa; --surface:#fff; --ink:#212529; --muted:#6c757d;
   --border:#dee2e6; --accent:#0d6efd; --accent-2:#dc3545; --dark:#343a40;
   --shadow:0 1px 4px rgba(0,0,0,.08); --radius:6px;
+  --split:.5;        /* left-panel fraction of the two-column layout */
+  --gutter:1.5rem;   /* draggable divider column width */
 }
 *{box-sizing:border-box}
 html{scroll-behavior:smooth}
@@ -39,10 +41,29 @@ button:hover{background:#495057}
 button:disabled{background:#adb5bd;cursor:wait}
 
 .dashboard{display:grid;gap:2rem;margin:1.25rem 0;grid-template-columns:1fr}
+.gutter{display:none}
 @media (min-width:1280px){
   body{padding-bottom:0}
-  .dashboard{grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:start;margin-bottom:0}
+  /* Three columns: left | draggable gutter | right. The fixed-width gutter is
+     subtracted first, then the remainder split by --split (set via drag). */
+  .dashboard{
+    grid-template-columns:
+      calc((100% - var(--gutter)) * var(--split))
+      var(--gutter)
+      calc((100% - var(--gutter)) * (1 - var(--split)));
+    gap:0;align-items:start;margin-bottom:0;
+  }
   section.charts{max-height:calc(100vh - 6rem);overflow-y:auto}
+  .gutter{
+    display:flex;align-items:center;justify-content:center;
+    align-self:stretch;cursor:col-resize;touch-action:none;
+  }
+  /* the visible grip line; grows + tints on hover/drag */
+  .gutter::before{
+    content:"";width:3px;height:36px;border-radius:2px;
+    background:var(--border);transition:background .15s,height .15s;
+  }
+  .gutter:hover::before,.gutter.dragging::before{background:var(--accent);height:64px}
 }
 section.summary h2,section.charts h2{
   font-size:.78rem;color:var(--muted);margin:0 0 .5rem;
@@ -100,6 +121,9 @@ canvas{width:100%!important;height:100%!important}
   <h2>Snapshot</h2>
   <div id="summary-grid"></div>
 </section>
+
+<div class="gutter" id="panel-gutter" role="separator" aria-orientation="vertical"
+     title="Drag to resize · double-click to reset"></div>
 
 <section class="charts">
   <div class="charts-toolbar">
@@ -464,10 +488,66 @@ async function refresh() {
   }
 }
 
+// Draggable divider between the snapshot grid (left) and charts (right).
+// Adjusts --split (left-panel fraction of the row) and persists it, so the
+// layout can be tuned to the monitor. Only active in the ≥1280px two-column
+// layout; below that the panels stack and the gutter is hidden.
+const SPLIT_KEY = "pe-panel-split";
+const MIN_SPLIT = 0.2, MAX_SPLIT = 0.8;
+
+function reflowCharts() {
+  for (const inst of chartInstances.values()) { inst.pe?.resize(); inst.vol?.resize(); }
+}
+
+function setSplit(frac, persist) {
+  frac = Math.min(MAX_SPLIT, Math.max(MIN_SPLIT, frac));
+  document.documentElement.style.setProperty("--split", frac);
+  if (persist) localStorage.setItem(SPLIT_KEY, String(frac));
+  return frac;
+}
+
+function initPanelSplitter() {
+  const gutter = document.getElementById("panel-gutter");
+  const dash = document.querySelector(".dashboard");
+  if (!gutter || !dash) return;
+
+  const saved = parseFloat(localStorage.getItem(SPLIT_KEY));
+  if (!Number.isNaN(saved)) setSplit(saved, false);
+
+  let dragging = false;
+  const onMove = e => {
+    if (!dragging) return;
+    const rect = dash.getBoundingClientRect();
+    const usable = rect.width - gutter.offsetWidth;
+    if (usable > 0) setSplit((e.clientX - rect.left) / usable, false);
+  };
+  const onUp = () => {
+    if (!dragging) return;
+    dragging = false;
+    gutter.classList.remove("dragging");
+    document.body.style.userSelect = "";
+    const frac = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--split"));
+    localStorage.setItem(SPLIT_KEY, String(frac));
+    reflowCharts();
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+  };
+  gutter.addEventListener("pointerdown", e => {
+    dragging = true;
+    gutter.classList.add("dragging");
+    document.body.style.userSelect = "none";  // don't select text mid-drag
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    e.preventDefault();
+  });
+  gutter.addEventListener("dblclick", () => { setSplit(0.5, true); reflowCharts(); });
+}
+
 (async () => {
   document.querySelectorAll(".range-btn").forEach(btn => {
     btn.addEventListener("click", () => setRange(btn.dataset.range));
   });
+  initPanelSplitter();
   updateHistoryPlaceholder();
   await loadSnapshot();
 })();
