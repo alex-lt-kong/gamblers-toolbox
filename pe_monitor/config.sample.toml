@@ -95,5 +95,6 @@ ASML = "ASML"
 # China A-shares (price in CNY)
 "688256.SS" = "@02YK"   # Cambricon
 "600478.SS" = "@Z1K"    # Hunan Corun
-# Not in this IBES dump: 688795.SS, SNDK (new spinoff; only old-SanDisk
-# pre-WDC-acquisition data is present, last statpers 2016-04-14)
+SNDK = "05AX"           # NEW SanDisk (Feb-2025 WDC spinoff; old SanDisk's own
+                        # code "SNDK" ends 2016 at the WDC acquisition)
+# Not in this IBES dump: 688795.SS

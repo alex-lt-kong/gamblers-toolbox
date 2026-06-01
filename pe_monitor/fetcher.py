@@ -103,20 +103,27 @@ class YfinanceFetcher:
             return [], "no price history from yfinance"
 
         eps_history = self._eps_history(yt, true_ttm_eps)
-        if len(eps_history) < 4:
-            return [], f"only {len(eps_history)} quarter(s) of EPS available (need 4)"
 
+        # Price is recorded for every trading day regardless of EPS coverage —
+        # TTM P/E simply stays NULL on days that lack 4 reported quarters (e.g.
+        # a recent spinoff or fresh listing). Those price rows still matter:
+        # the IBES forward-P/E line interpolates against the daily price, so
+        # gating them on TTM availability would blank out the whole pre-4Q
+        # window even though the prices exist at the source.
         rows = []
+        ttm_count = 0
         for ts, prow in prices.iterrows():
             d = ts.date() if hasattr(ts, "date") else ts
-            applicable = [eps for rd, eps in eps_history if rd <= d]
-            if len(applicable) < 4:
-                continue
             price = float(prow["Close"])
             raw_vol = prow.get("Volume")
             volume = int(raw_vol) if raw_vol is not None and pd.notna(raw_vol) else None
-            ttm_eps = sum(applicable[-4:])
-            ttm_pe = price / ttm_eps if ttm_eps > 0 else None
+            applicable = [eps for rd, eps in eps_history if rd <= d]
+            if len(applicable) >= 4:
+                ttm_eps = sum(applicable[-4:])
+                ttm_pe = price / ttm_eps if ttm_eps > 0 else None
+                ttm_count += 1
+            else:
+                ttm_eps = ttm_pe = None
             rows.append({
                 "date": d.isoformat(),
                 "name": name,
@@ -133,8 +140,9 @@ class YfinanceFetcher:
             })
 
         if not rows:
-            return [], "EPS history doesn't reach back far enough for any price date"
-        return rows, "ok"
+            return [], "no price history from yfinance"
+        suffix = "" if ttm_count == len(rows) else f" ({len(rows) - ttm_count} price-only, <4Q EPS)"
+        return rows, "ok" + suffix
 
     def _eps_history(self, ticker_obj, true_ttm_eps):
         """Return [(available_date, scaled_eps), ...] oldest-first. Calibrates
