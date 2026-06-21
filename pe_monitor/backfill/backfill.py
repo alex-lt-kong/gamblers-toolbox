@@ -1,9 +1,9 @@
 """Backfill historical TTM P/E into per-ticker storage.
 
-Run manually:
-    python backfill.py                # all tickers from config.toml
-    python backfill.py AAPL MSFT      # specific tickers
-    python backfill.py --days 1825    # ~5 years instead of default 1
+Run manually (from pe_monitor/):
+    python backfill/backfill.py             # all tickers from config.toml
+    python backfill/backfill.py AAPL MSFT   # specific tickers
+    python backfill/backfill.py --days 1825 # ~5 years instead of default 1
 
 Per-ticker logic lives in the fetcher backends (see fetcher.py); this script
 is just dispatch + storage. Forward P/E cannot be backfilled (analyst
@@ -14,6 +14,7 @@ existing rows (e.g. populating volume on dates that predate the column).
 
 import argparse
 
+import _bootstrap  # noqa: F401  (sys.path shim)
 import config
 import fetcher
 import storage

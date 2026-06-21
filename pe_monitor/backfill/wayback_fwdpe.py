@@ -16,9 +16,9 @@ Two layouts are handled:
   prior quarter-end dates. Snapshots taken weeks apart will overlap on the
   quarter-end values, which acts as a built-in consistency check.
 
-Usage:
-    python wayback_fwdpe.py NVDA           # prints (date, fwd_pe) rows
-    python wayback_fwdpe.py NVDA --json    # JSON output for piping into the importer
+Usage (from pe_monitor/):
+    python backfill/wayback_fwdpe.py NVDA          # prints (date, fwd_pe) rows
+    python backfill/wayback_fwdpe.py NVDA --json   # JSON output for the importer
 """
 
 import argparse
@@ -34,6 +34,7 @@ from datetime import datetime
 
 from bs4 import BeautifulSoup
 
+import _bootstrap  # noqa: F401  (sys.path shim)
 import config
 
 

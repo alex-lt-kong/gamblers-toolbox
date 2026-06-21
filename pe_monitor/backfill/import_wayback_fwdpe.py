@@ -10,12 +10,12 @@ the rows into the history table. Two safety gates:
    scraped value slipped past gate (1), an existing non-NULL forward_pe in
    the DB still wins. Belt-and-suspenders.
 
-Usage:
-    python wayback_fwdpe.py NVDA --json > nvda.json
-    python import_wayback_fwdpe.py NVDA --file nvda.json
+Usage (from pe_monitor/):
+    python backfill/wayback_fwdpe.py NVDA --json > nvda.json
+    python backfill/import_wayback_fwdpe.py NVDA --file nvda.json
 
 Or pipe directly:
-    python wayback_fwdpe.py NVDA --json | python import_wayback_fwdpe.py NVDA
+    python backfill/wayback_fwdpe.py NVDA --json | python backfill/import_wayback_fwdpe.py NVDA
 """
 
 import argparse
@@ -23,6 +23,7 @@ import json
 import pathlib
 import sys
 
+import _bootstrap  # noqa: F401  (sys.path shim)
 import config
 import storage
 

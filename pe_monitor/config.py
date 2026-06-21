@@ -1,4 +1,4 @@
-"""Load and resolve project config. Shared between app.py and backfill.py."""
+"""Load and resolve project config. Shared between app.py and backfill/ tools."""
 
 import tomllib
 from pathlib import Path

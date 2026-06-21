@@ -22,10 +22,10 @@ it already does for the live forward_pe. So this script makes NO network calls
 and stores only genuine IBES observations — the daily fill is a presentation
 concern handled at serve time.
 
-Usage:
-    python import_ibes.py                  # backfill all mapped tickers
-    python import_ibes.py --dry-run        # report only, write nothing
-    python import_ibes.py --tickers NVDA,BABA,0700.HK
+Usage (from pe_monitor/):
+    python backfill/import_ibes.py             # backfill all mapped tickers
+    python backfill/import_ibes.py --dry-run   # report only, write nothing
+    python backfill/import_ibes.py --tickers NVDA,BABA,0700.HK
 """
 
 import argparse
@@ -37,6 +37,7 @@ from pathlib import Path
 
 import pandas as pd
 
+import _bootstrap  # noqa: F401  (sys.path shim)
 import config
 import storage
 
@@ -142,7 +143,7 @@ def main() -> int:
         print("No [ibes] section / ticker_map in config.toml.", file=sys.stderr)
         return 1
 
-    pe_dir = Path(__file__).parent
+    pe_dir = Path(__file__).resolve().parent.parent  # CSVs live in pe_monitor/
     stat_csv = str(pe_dir / ibes["stat_csv"])
     act_csv = str(pe_dir / ibes["act_csv"])
     ticker_map: dict[str, str] = dict(ibes["ticker_map"])

@@ -16,7 +16,7 @@ fetch_interval_seconds = 86400
 database_path = "pe_history.db"
 
 # The first date on which live daily snapshots populated forward_pe. The
-# Wayback importer (import_wayback_fwdpe.py) refuses to write any date on
+# Wayback importer (backfill/import_wayback_fwdpe.py) refuses to write any date on
 # or after this — live values are authoritative, Wayback-scraped values
 # are not. The dashboard draws a dashed vertical marker at this date.
 # Set to the earliest date you ran the live crawler; e.g.:
@@ -29,7 +29,7 @@ first_live_collection_date = "2026-01-01"
 host = "127.0.0.1"
 port = 5000
 
-# IBES historical-EPS backfill (used by import_ibes.py).
+# IBES historical-EPS backfill (used by backfill/import_ibes.py).
 # Two I/B/E/S dumps, joined on (TICKER, STATPERS):
 #   stat_csv — Summary Statistics: estimates, columns TICKER, STATPERS, FISCALP,
 #              FPI, MEANEST, CURCODE, FPEDATS ...
