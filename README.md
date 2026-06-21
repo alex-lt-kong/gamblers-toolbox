@@ -83,3 +83,14 @@ The only things unified across modules are the interface (`core/module.py`), the
 port, and authentication. Data, templates, and schedulers stay private to each
 module. JSON API routes appear in Swagger automatically; HTML pages opt out with
 `include_in_schema=False`.
+
+## Tests
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest
+```
+
+Integration tests (FastAPI `TestClient`) cover config validation + secret rejection,
+module discovery, auth on/off + revocation, prefixed routes, concurrent-refresh `409`,
+and lifecycle startup/shutdown.
