@@ -108,6 +108,33 @@ canvas{width:100%!important;height:100%!important}
   100%{box-shadow:0 0 0 0 transparent,var(--shadow)}
 }
 .flash{animation:flash 1.4s ease-out}
+
+.summary-toolbar{
+  display:flex;align-items:center;justify-content:space-between;
+  gap:.5rem;margin-bottom:.5rem;
+}
+.summary-toolbar h2{margin:0}
+.col-chooser{position:relative}
+.col-chooser-btn{
+  background:transparent;color:var(--muted);border:1px solid var(--border);
+  padding:.2rem .6rem;border-radius:4px;cursor:pointer;font-size:.72rem;
+  font-weight:600;letter-spacing:.3px;
+}
+.col-chooser-btn:hover{background:var(--surface);color:var(--ink)}
+.col-menu{
+  position:absolute;right:0;top:calc(100% + 4px);z-index:20;
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--radius);box-shadow:var(--shadow);
+  padding:.35rem;min-width:170px;display:none;
+}
+.col-menu.open{display:block}
+.col-menu label{
+  display:flex;align-items:center;gap:.5rem;padding:.3rem .45rem;
+  font-size:.82rem;cursor:pointer;border-radius:4px;white-space:nowrap;
+}
+.col-menu label:hover{background:var(--bg)}
+.col-menu input{cursor:pointer;margin:0}
+.col-menu label.locked{opacity:.55;cursor:not-allowed}
 </style>
 </head>
 <body>
@@ -118,7 +145,14 @@ canvas{width:100%!important;height:100%!important}
 
 <main class="dashboard">
 <section class="summary">
-  <h2>Snapshot</h2>
+  <div class="summary-toolbar">
+    <h2>Snapshot</h2>
+    <div class="col-chooser">
+      <button type="button" class="col-chooser-btn" id="col-chooser-btn"
+              aria-haspopup="true" aria-expanded="false">Columns ▾</button>
+      <div class="col-menu" id="col-menu" role="menu"></div>
+    </div>
+  </div>
   <div id="summary-grid"></div>
 </section>
 
@@ -281,6 +315,68 @@ const COLUMN_DEFS = [
     cellRenderer: p => linkCell(fmt(p.value), Y.analysis(p.data.ticker)), sort: "asc"},
 ];
 
+// Per-browser column visibility. We persist the *hidden* set (rather than the
+// visible one) so columns added to COLUMN_DEFS later default to shown. The
+// ticker column is locked on — it carries the row-selection checkboxes.
+const COLS_KEY = "pe-hidden-cols";
+const LOCKED_COLS = new Set(["ticker"]);
+
+function loadHiddenCols() {
+  try { return new Set(JSON.parse(localStorage.getItem(COLS_KEY)) || []); }
+  catch { return new Set(); }
+}
+function saveHiddenCols(set) {
+  localStorage.setItem(COLS_KEY, JSON.stringify([...set]));
+}
+
+function applyColumnVisibility() {
+  const hidden = loadHiddenCols();
+  for (const def of COLUMN_DEFS) {
+    const visible = LOCKED_COLS.has(def.field) || !hidden.has(def.field);
+    gridApi.setColumnsVisible([def.field], visible);
+  }
+}
+
+function buildColumnChooser() {
+  const menu = document.getElementById("col-menu");
+  const hidden = loadHiddenCols();
+  menu.innerHTML = "";
+  for (const def of COLUMN_DEFS) {
+    const locked = LOCKED_COLS.has(def.field);
+    const label = document.createElement("label");
+    if (locked) label.classList.add("locked");
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = locked || !hidden.has(def.field);
+    cb.disabled = locked;
+    cb.addEventListener("change", () => {
+      const h = loadHiddenCols();
+      if (cb.checked) h.delete(def.field); else h.add(def.field);
+      saveHiddenCols(h);
+      gridApi.setColumnsVisible([def.field], cb.checked);
+    });
+    label.append(cb, document.createTextNode(def.headerName));
+    menu.appendChild(label);
+  }
+}
+
+function initColumnChooser() {
+  const btn = document.getElementById("col-chooser-btn");
+  const menu = document.getElementById("col-menu");
+  if (!btn || !menu) return;
+  btn.addEventListener("click", e => {
+    e.stopPropagation();
+    const open = menu.classList.toggle("open");
+    btn.setAttribute("aria-expanded", String(open));
+  });
+  // Close on outside click; keep open when interacting with the menu itself.
+  menu.addEventListener("click", e => e.stopPropagation());
+  document.addEventListener("click", () => {
+    menu.classList.remove("open");
+    btn.setAttribute("aria-expanded", "false");
+  });
+}
+
 function updateHistoryPlaceholder() {
   const ph = document.getElementById("history-placeholder");
   if (ph) ph.style.display = visibleCharts.size === 0 ? "" : "none";
@@ -350,6 +446,8 @@ function ensureGrid() {
     getRowId: ({data}) => data.ticker,
     onSelectionChanged,
   });
+  applyColumnVisibility();
+  buildColumnChooser();
 }
 
 async function loadSnapshot() {
@@ -548,6 +646,7 @@ function initPanelSplitter() {
     btn.addEventListener("click", () => setRange(btn.dataset.range));
   });
   initPanelSplitter();
+  initColumnChooser();
   updateHistoryPlaceholder();
   await loadSnapshot();
 })();
