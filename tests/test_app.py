@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 
 from core.registry import discover_modules
@@ -55,3 +56,17 @@ def test_auth_revocation(make_app):
     cb = TestClient(make_app(auth_tokens=["tokB"]))  # same secret, tokA removed
     cb.cookies.update(jar)
     assert cb.get("/pe-monitor/api/tickers", follow_redirects=False).status_code == 401
+
+
+def test_duplicate_slugs_rejected():
+    from fastapi import APIRouter
+    from core import config as hc
+    from core.main import build_app
+    from core.module import Module
+    cfg = hc.load_config()
+    dup = [
+        Module(slug="dup", name="A", description="", router=APIRouter()),
+        Module(slug="dup", name="B", description="", router=APIRouter()),
+    ]
+    with pytest.raises(RuntimeError):
+        build_app(cfg, dup)

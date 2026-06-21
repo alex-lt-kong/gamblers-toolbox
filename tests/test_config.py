@@ -11,8 +11,8 @@ def _write(tmp_path, body):
 
 def test_load_fills_defaults(tmp_path):
     cfg = config.load_config(_write(tmp_path, "auth_tokens = []\nport = 1234\n"))
-    assert cfg["port"] == 1234
-    assert cfg["host"] == "127.0.0.1"  # default filled in
+    assert cfg.port == 1234
+    assert cfg.host == "127.0.0.1"  # default filled in
 
 
 def test_missing_file_raises(tmp_path):
@@ -39,7 +39,7 @@ def test_short_secret_with_auth_rejected(tmp_path):
 
 def test_default_secret_ok_when_auth_off(tmp_path):
     body = 'auth_tokens = []\nsecret_key = "dev-insecure-change-me"\n'
-    assert config.load_config(_write(tmp_path, body))["auth_tokens"] == []
+    assert config.load_config(_write(tmp_path, body)).auth_tokens == []
 
 
 def test_module_config_missing_gives_clear_error():

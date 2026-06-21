@@ -28,8 +28,7 @@ def make_app():
     modules = discover_modules()
 
     def _make(**overrides):
-        cfg = dict(base)
-        cfg.update(overrides)
+        cfg = base.model_copy(update=overrides)
         return main.build_app(cfg, modules)
 
     return _make

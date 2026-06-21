@@ -15,4 +15,4 @@ import uvicorn
 from core import config
 
 cfg = config.load_config()
-uvicorn.run("core.main:create_app", factory=True, host=cfg["host"], port=cfg["port"])
+uvicorn.run("core.main:create_app", factory=True, host=cfg.host, port=cfg.port)
