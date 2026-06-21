@@ -14,7 +14,7 @@ _ENV_VAR = "MARKET_UTILS_CONFIG"
 
 _DEFAULTS = {
     "host": "127.0.0.1",
-    "port": 8000,
+    "port": 9090,
     "secret_key": "dev-insecure-change-me",
     "auth_tokens": [],
 }

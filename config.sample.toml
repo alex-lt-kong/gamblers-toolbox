@@ -2,7 +2,7 @@
 # Only shared concerns live here; each module keeps its own config.
 
 host = "127.0.0.1"
-port = 8000
+port = 9090
 
 # Signs the session cookie that remembers auth. CHANGE THIS for any real use.
 secret_key = "dev-insecure-change-me"
