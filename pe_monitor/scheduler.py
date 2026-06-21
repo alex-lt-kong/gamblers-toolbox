@@ -6,11 +6,21 @@ import fetcher
 import storage
 
 
+def _has_usable_data(snap: dict) -> bool:
+    """A snapshot is worth persisting only if it carries a real price; every
+    other field (P/E, EPS) derives from it and may legitimately be NULL."""
+    price = snap.get("price")
+    return price is not None and price > 0
+
+
 def snapshot_all(tickers: list[str], db_path: str) -> None:
     for t in tickers:
         try:
             snap = fetcher.get_fetcher(t).fetch_pe(t)
-            storage.append_snapshot(db_path, t, snap)
+            if _has_usable_data(snap):
+                storage.append_snapshot(db_path, t, snap)
+            else:
+                print(f"  Skipping {t}: no usable price in response")
         except Exception as e:
             print(f"  Warning: could not fetch {t}: {e}")
 

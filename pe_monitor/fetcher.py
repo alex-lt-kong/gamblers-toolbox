@@ -11,7 +11,7 @@ Two backends:
 `get_fetcher(ticker)` dispatches by suffix.
 """
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Protocol
 
 import pandas as pd
@@ -88,6 +88,7 @@ class YfinanceFetcher:
             "analyst_count": analyst_count,
             "financial_currency": financial_currency,
             "forward_eps_native": forward_eps_native,
+            "last_crawl_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         }
 
     def backfill_history(self, ticker: str, days: int) -> tuple[list[dict], str]:

@@ -76,6 +76,9 @@ section.summary h2,section.charts h2{
 #summary-grid .cell-link{color:inherit;text-decoration:none}
 #summary-grid .cell-link:hover{text-decoration:underline}
 #summary-grid .ccy-native{color:var(--muted);font-size:.85em;margin-left:.25em}
+#summary-grid .crawl-fresh{color:#198754;font-weight:600}
+#summary-grid .crawl-warn{color:#d97706;font-weight:600}
+#summary-grid .crawl-stale{color:#dc3545;font-weight:600}
 
 .chart-card{
   background:var(--surface);padding:1rem 1.25rem;margin:1rem 0;
@@ -217,6 +220,20 @@ const fmtVolumeAxis = v => {
   if (v >= 1e3)  return trim(v/1e3)  + "K";
   return String(Math.round(v));
 };
+const fmtRelativeTime = iso => {
+  if (!iso) return "—";
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return "—";
+  let s = Math.max(0, Math.floor((Date.now() - t) / 1000));
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60); if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60); if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+};
+const crawlAgeDays = iso => {
+  const t = iso ? Date.parse(iso) : NaN;
+  return Number.isNaN(t) ? null : (Date.now() - t) / 86400000;
+};
 const Y_AXIS_WIDTH = 58;  // pin both charts so date axes line up
 
 // Dashed vertical marker at `first_live_collection_date`. Anything left of
@@ -313,6 +330,14 @@ const COLUMN_DEFS = [
     cellRenderer: p => linkCell(fmtInt(p.value), Y.analysis(p.data.ticker))},
   {field: "forward_pe", headerName: "Fwd P/E", type: "numericColumn", flex: 1,
     cellRenderer: p => linkCell(fmt(p.value), Y.analysis(p.data.ticker)), sort: "asc"},
+  {field: "last_crawl_at", headerName: "Last successful crawl", flex: 1.4,
+    cellRenderer: p => fmtRelativeTime(p.value),
+    cellClassRules: {
+      "crawl-fresh": p => { const d = crawlAgeDays(p.value); return d != null && d <= 3; },
+      "crawl-warn":  p => { const d = crawlAgeDays(p.value); return d != null && d >= 5 && d < 10; },
+      "crawl-stale": p => { const d = crawlAgeDays(p.value); return d != null && d >= 10; },
+    },
+    tooltipValueGetter: p => p.value ? new Date(p.value).toLocaleString() : "no successful crawl yet"},
 ];
 
 // Per-browser column visibility. We persist the *hidden* set (rather than the
@@ -649,6 +674,10 @@ function initPanelSplitter() {
   initColumnChooser();
   updateHistoryPlaceholder();
   await loadSnapshot();
+  // Re-fetch so a background crawl shows up without manual refresh; re-render
+  // more often so the crawl age ticks smoothly between fetches.
+  setInterval(() => loadSnapshot().catch(() => {}), 300000);
+  setInterval(() => gridApi?.refreshCells({columns: ["last_crawl_at"], force: true}), 30000);
 })();
 </script>
 </body>
