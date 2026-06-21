@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -56,6 +56,7 @@ def build_app() -> FastAPI:
     app.add_middleware(SessionMiddleware, secret_key=CONFIG["secret_key"])
 
     templates = Jinja2Templates(directory=str(_HERE / "templates"))
+    app.mount("/static", StaticFiles(directory=str(_HERE / "static")), name="static")
 
     for m in MODULES:
         app.include_router(m.router, prefix=f"/{m.slug}", tags=[m.name])
@@ -69,6 +70,10 @@ def build_app() -> FastAPI:
     @app.get("/", include_in_schema=False)
     def landing(request: Request) -> HTMLResponse:
         return templates.TemplateResponse(request, "landing.html", {"modules": MODULES})
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    def favicon():
+        return FileResponse(_HERE / "static" / "favicon.ico")
 
     return app
 

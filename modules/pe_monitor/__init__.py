@@ -13,6 +13,7 @@ MODULE = Module(
     name="P/E Monitor",
     description="Live forward & TTM P/E dashboard for a watchlist of equities.",
     router=views.router,
+    order=10,
     icon="📈",
     static_dir=str(_HERE / "static"),
     static_name="pe_monitor_static",

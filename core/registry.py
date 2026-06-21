@@ -15,5 +15,5 @@ def discover_modules() -> list[Module]:
         candidate = getattr(pkg, "MODULE", None)
         if isinstance(candidate, Module):
             found.append(candidate)
-    found.sort(key=lambda m: m.name)
+    found.sort(key=lambda m: (m.order, m.name))
     return found

@@ -17,6 +17,7 @@ class Module:
     name: str                 # display name, e.g. "P/E Monitor"
     description: str          # one-line landing-card text
     router: APIRouter         # included at prefix=/<slug>, tags=[name]
+    order: int = 100          # lower sorts earlier on the landing page
     icon: Optional[str] = None
     static_dir: Optional[str] = None   # abs path mounted at /<slug>/static
     static_name: Optional[str] = None  # url_for name (match the template)
