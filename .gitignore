@@ -41,6 +41,9 @@ htmlcov/
 # Environment variables (Crucial for security)
 .env
 
+# Real host config (copy from config.sample.toml)
+/config.toml
+
 # OS generated files
 .DS_Store
 Thumbs.db

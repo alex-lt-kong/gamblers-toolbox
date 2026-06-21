@@ -1,0 +1,14 @@
+# market-utils host config — copy to config.toml and edit.
+# Only shared concerns live here; each module keeps its own config.
+
+host = "127.0.0.1"
+port = 8000
+
+# Signs the session cookie that remembers auth. CHANGE THIS for any real use.
+secret_key = "dev-insecure-change-me"
+
+# Shared token auth. Empty list = auth DISABLED (open to anyone who can reach
+# the port). To enable, add one or more UUIDs; then open any page with
+# ?token=<uuid> once to receive the cookie:
+#   auth_tokens = ["3f9b1c2e-...", "..."]
+auth_tokens = []

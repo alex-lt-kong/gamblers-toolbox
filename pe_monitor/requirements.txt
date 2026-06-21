@@ -1,4 +1,0 @@
-flask>=3.0
-apscheduler>=3.10
-yfinance>=0.2
-lxml>=4.9

@@ -2,8 +2,7 @@
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
-import fetcher
-import storage
+from . import fetcher, storage
 
 
 def _has_usable_data(snap: dict) -> bool:
