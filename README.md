@@ -35,8 +35,9 @@ env var (handy for systemd / direct uvicorn):
 MARKET_UTILS_CONFIG=config.toml uvicorn --factory core.main:create_app --host 0.0.0.0 --port 9090
 ```
 
-The host config holds only the shared concerns — `host`, `port`, `secret_key`, and
-`auth_tokens`. Each module keeps its own config inside its package. On startup the
+The host config holds only the shared concerns — `host`, `port`, `secret_key`,
+`auth_tokens`, and `enable_schedulers`. Each module keeps its own config inside its
+package. On startup the
 app logs the loaded config path, bind address, and discovered modules (token and
 secret values are masked unless `MARKET_UTILS_LOG_SECRETS=1`).
 
@@ -44,6 +45,10 @@ secret values are masked unless `MARKET_UTILS_LOG_SECRETS=1`).
 > `pe_history.db`/data are gitignored, so `git pull` won't relocate them. Move them
 > into the new path once:
 > `mv pe_monitor/config.toml pe_monitor/pe_history.db* pe_monitor/pe_history modules/pe_monitor/`
+
+> **Scaling:** schedulers run in-process — run a **single worker**. For multiple
+> replicas, set `enable_schedulers = false` on all but one so background jobs (and
+> DB writes) happen exactly once.
 
 ## Authentication
 

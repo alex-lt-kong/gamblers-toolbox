@@ -12,3 +12,8 @@ secret_key = "dev-insecure-change-me"
 # ?token=<uuid> once to receive the cookie:
 #   auth_tokens = ["3f9b1c2e-...", "..."]
 auth_tokens = []
+
+# Run each module's background scheduler in this process (default true). For
+# multi-replica deploys, set false on web replicas and run schedulers on exactly
+# one instance (which owns the data).
+enable_schedulers = true

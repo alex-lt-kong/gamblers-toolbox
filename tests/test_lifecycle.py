@@ -14,3 +14,11 @@ def test_lifespan_starts_and_stops(make_app, monkeypatch):
     # context exit ran shutdown: both module schedulers were stopped
     assert cache._scheduler is None
     assert pe_views._scheduler is None
+
+
+def test_schedulers_disabled_skips_lifespans(make_app):
+    app = make_app(enable_schedulers=False)
+    with TestClient(app) as c:           # lifespan runs, but enters no modules
+        assert c.get("/").status_code == 200
+    assert cache._scheduler is None
+    assert pe_views._scheduler is None

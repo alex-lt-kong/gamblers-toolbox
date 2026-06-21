@@ -22,6 +22,7 @@ class HostConfig(BaseModel):
     port: int = 9090
     secret_key: str = _DEFAULT_SECRET
     auth_tokens: list[str] = []
+    enable_schedulers: bool = True
 
 
 def config_source(path: str | None = None) -> str:

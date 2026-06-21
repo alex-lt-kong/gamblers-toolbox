@@ -38,6 +38,7 @@ def _log_config(config: host_config.HostConfig, modules: list) -> None:
     print(f"[market-utils] secret_key:  {secret_disp}")
     print(f"[market-utils] auth_tokens: {tokens_disp}")
     print(f"[market-utils] modules:     {', '.join(m.slug for m in modules) or '(none)'}")
+    print(f"[market-utils] schedulers:  {'on' if config.enable_schedulers else 'off'}")
     if tokens and not show:
         print("[market-utils] (set MARKET_UTILS_LOG_SECRETS=1 to print token/secret values)")
 
@@ -60,10 +61,13 @@ def build_app(config: host_config.HostConfig, modules: list) -> FastAPI:
     async def lifespan(app: FastAPI):
         # Each module owns its resources via its own context manager; they start
         # synchronously here (fast) and are torn down on shutdown in reverse.
+        # Schedulers can be disabled (e.g. on web replicas) so background jobs
+        # run on exactly one instance.
         with ExitStack() as stack:
-            for m in modules:
-                if m.lifespan is not None:
-                    stack.enter_context(m.lifespan())
+            if config.enable_schedulers:
+                for m in modules:
+                    if m.lifespan is not None:
+                        stack.enter_context(m.lifespan())
             yield
 
     app = FastAPI(title="market-utils", lifespan=lifespan)
