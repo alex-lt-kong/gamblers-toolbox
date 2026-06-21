@@ -14,16 +14,29 @@ and keeps its own data, templates, and scheduler.
 - `modules/ai_ratios/` — S&P AI-exposure ratio; computes via `core.py`, caches in `cache.py`
   with its own scheduler; `views.py` serves dashboard + JSON API.
 
-**Run:** `pip install -r requirements.txt` then `python -m core`. Auth is off until
-`auth_tokens` are set in `config.toml`.
+**Run:** `pip install -r requirements.txt` then `python -m core --config config.toml`
+(`--config` is mandatory; default bind 9090). Auth is off until `auth_tokens` are set;
+when enabled a strong `secret_key` is required or the app refuses to start.
 
 **Next steps / ideas:**
-- Auth is built but default-disabled; the user plans to turn it on with real UUID tokens.
-- Consider exempting `/healthz` (and optionally `/docs`) when auth is enabled.
-- ai_ratios initial compute needs network (Yahoo/Wikipedia); it runs in a background thread
-  so it never blocks startup, and retries on its schedule.
+- Open offer: persist ai_ratios result (JSON snapshot) so it survives restarts.
+- Consider exempting `/healthz` from auth when enabled.
+- Each module's initial fetch runs as a one-off job inside its own scheduler (started
+  synchronously at boot), so startup isn't blocked; refreshes are single-flight and
+  ai_ratios keeps last-known-good below 95% constituent coverage.
 
 ## Activity Log
+
+### 2026-06-22 — Security & robustness hardening (review follow-up)
+- Secrets masked in the startup banner (opt-in via `MARKET_UTILS_LOG_SECRETS`).
+- Refuse to start when `auth_tokens` set but `secret_key` is default/empty/short.
+- Sessions store the token hash and revalidate each request, so removing a token revokes
+  its cookies; session `max_age` set to 7 days.
+- Clear "copy config.sample.toml" errors; README documents per-module config + upgrade
+  data migration.
+- ai_ratios: coverage threshold (keep last-good below 95%), single-flight refresh (409),
+  Wikipedia timeout + bounded Yahoo deadline.
+- Lifecycle: schedulers started synchronously + retained; both modules have on_shutdown.
 
 ### 2026-06-22 — Unify pe_monitor + ai_ratios under one FastAPI app
 - Built `core/` host shell with a pluggable `Module` interface and auto-discovery of

@@ -5,7 +5,6 @@ Each module brings its own routes, static, templates and scheduler.
 """
 
 import os
-import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -47,11 +46,11 @@ _log_config()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Run startup hooks off the event loop: a module's initial data fetch must
-    # not block the server (or other modules) from coming up.
+    # Startup hooks just start each module's scheduler (fast); the slow initial
+    # fetch runs as a one-off job inside that scheduler, so boot isn't blocked.
     for m in MODULES:
         if m.on_startup:
-            threading.Thread(target=m.on_startup, name=f"startup:{m.slug}", daemon=True).start()
+            m.on_startup()
     yield
     for m in MODULES:
         if m.on_shutdown:

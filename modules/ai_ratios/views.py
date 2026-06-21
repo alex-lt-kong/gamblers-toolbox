@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
@@ -29,4 +29,7 @@ def api_data():
 
 @router.post("/api/refresh")
 def api_refresh():
-    return cache.refresh()
+    try:
+        return cache.refresh()
+    except cache.Busy:
+        raise HTTPException(status_code=409, detail="refresh already in progress")

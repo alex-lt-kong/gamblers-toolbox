@@ -197,13 +197,27 @@ def api_latest():
 
 @router.post("/api/refresh")
 def api_refresh():
-    scheduler.snapshot_all(CONFIG["tickers"], CONFIG["database_path"])
+    try:
+        scheduler.snapshot_all(CONFIG["tickers"], CONFIG["database_path"])
+    except scheduler.Busy:
+        raise HTTPException(status_code=409, detail="snapshot already in progress")
     return {"status": "ok"}
 
 
+_scheduler = None
+
+
 def start_background() -> None:
-    scheduler.start_scheduler(
+    global _scheduler
+    _scheduler = scheduler.start_scheduler(
         CONFIG["tickers"],
         CONFIG["database_path"],
         CONFIG["fetch_interval_seconds"],
     )
+
+
+def stop_background() -> None:
+    global _scheduler
+    if _scheduler is not None:
+        _scheduler.shutdown(wait=False)
+        _scheduler = None
