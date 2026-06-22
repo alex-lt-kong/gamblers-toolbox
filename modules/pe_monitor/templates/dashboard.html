@@ -109,6 +109,14 @@ canvas{width:100%!important;height:100%!important}
 }
 .range-btn:hover{background:var(--surface);color:var(--ink)}
 .range-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.chart-controls{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap}
+.date-range{display:flex;align-items:center;gap:.3rem}
+.date-range input[type=date]{
+  font-family:inherit;font-size:.72rem;color:var(--ink);background:var(--surface);
+  border:1px solid var(--border);border-radius:4px;padding:.16rem .4rem;
+}
+.date-range input[type=date]:focus{outline:none;border-color:var(--accent)}
+.date-sep{color:var(--muted);font-size:.8rem}
 @keyframes flash{
   0%{box-shadow:0 0 0 3px var(--accent),var(--shadow)}
   100%{box-shadow:0 0 0 0 transparent,var(--shadow)}
@@ -171,14 +179,22 @@ canvas{width:100%!important;height:100%!important}
 <section class="charts">
   <div class="charts-toolbar">
     <h2>History</h2>
-    <div class="range-selector" id="range-selector">
-      <button class="range-btn" data-range="1m">1M</button>
-      <button class="range-btn" data-range="3m">3M</button>
-      <button class="range-btn" data-range="6m">6M</button>
-      <button class="range-btn" data-range="1y">1Y</button>
-      <button class="range-btn" data-range="3y">3Y</button>
-      <button class="range-btn" data-range="5y">5Y</button>
-      <button class="range-btn active" data-range="all">All</button>
+    <div class="chart-controls">
+      <div class="range-selector" id="range-selector">
+        <button class="range-btn" data-range="1m">1M</button>
+        <button class="range-btn" data-range="3m">3M</button>
+        <button class="range-btn" data-range="6m">6M</button>
+        <button class="range-btn" data-range="1y">1Y</button>
+        <button class="range-btn" data-range="3y">3Y</button>
+        <button class="range-btn" data-range="5y">5Y</button>
+        <button class="range-btn" data-range="10y">10Y</button>
+        <button class="range-btn active" data-range="all">All</button>
+      </div>
+      <div class="date-range" id="date-range">
+        <input type="date" id="start-date" aria-label="Start date">
+        <span class="date-sep">–</span>
+        <input type="date" id="end-date" aria-label="End date">
+      </div>
     </div>
   </div>
   <p id="history-placeholder" class="empty">Check one or more tickers above to view their historical chart.</p>
@@ -503,13 +519,44 @@ async function loadSnapshot() {
 }
 
 let currentRange = "all";
+let customStart = "";
+let customEnd = "";
+
+// The chart query is either a preset range or an explicit start/end window.
+// Setting either date switches to custom mode; clicking a preset clears the dates.
+function historyQuery() {
+  if (customStart || customEnd) {
+    const p = new URLSearchParams();
+    if (customStart) p.set("start", customStart);
+    if (customEnd) p.set("end", customEnd);
+    return p.toString();
+  }
+  return `range=${currentRange}`;
+}
+
+function setActiveRangeBtn(range) {
+  document.querySelectorAll(".range-btn").forEach(btn =>
+    btn.classList.toggle("active", btn.dataset.range === range));
+}
 
 function setRange(range) {
-  if (range === currentRange) return;
+  if (range === currentRange && !customStart && !customEnd) return;
   currentRange = range;
-  document.querySelectorAll(".range-btn").forEach(btn => {
-    btn.classList.toggle("active", btn.dataset.range === range);
-  });
+  customStart = customEnd = "";
+  document.getElementById("start-date").value = "";
+  document.getElementById("end-date").value = "";
+  setActiveRangeBtn(range);
+  historyRows.clear();
+  renderCharts();
+}
+
+function onDateChange() {
+  const s = document.getElementById("start-date").value;
+  const e = document.getElementById("end-date").value;
+  if (s && e && s > e) return;  // wait for a valid order before querying
+  customStart = s;
+  customEnd = e;
+  setActiveRangeBtn(s || e ? null : currentRange);  // custom mode hides preset highlight
   historyRows.clear();
   renderCharts();
 }
@@ -517,7 +564,7 @@ function setRange(range) {
 async function renderCharts() {
   await Promise.all([...visibleCharts].map(async t => {
     if (historyRows.has(t)) return;
-    const res = await fetch(`{{ api_base }}/history/${t}?range=${currentRange}`);
+    const res = await fetch(`{{ api_base }}/history/${t}?${historyQuery()}`);
     historyRows.set(t, await res.json());
   }));
   const labels = unionDates();
@@ -703,6 +750,12 @@ function initPanelSplitter() {
   document.querySelectorAll(".range-btn").forEach(btn => {
     btn.addEventListener("click", () => setRange(btn.dataset.range));
   });
+  const today = new Date().toISOString().slice(0, 10);
+  for (const id of ["start-date", "end-date"]) {
+    const el = document.getElementById(id);
+    el.max = today;
+    el.addEventListener("change", onDateChange);
+  }
   initPanelSplitter();
   initColumnChooser();
   updateHistoryPlaceholder();

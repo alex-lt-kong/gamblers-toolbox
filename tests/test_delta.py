@@ -22,6 +22,8 @@ def test_delta_snaps_to_interpolated_then():
     assert d["then"] == 15.0 and d["then_interpolated"] is True
     assert d["delta"] == 5.0
     assert d["delta_pct"] == 5.0 / 15.0
+    # Sparkline spans the window: first point == then, last == now.
+    assert d["series"][0] == 15.0 and d["series"][-1] == 20.0
 
 
 def test_delta_then_none_when_window_predates_coverage():

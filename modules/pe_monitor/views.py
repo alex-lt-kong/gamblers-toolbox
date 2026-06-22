@@ -30,7 +30,7 @@ def _cfg() -> dict:
 # Predefined ranges for /api/history. None = no lower bound (all).
 RANGE_DAYS = {
     "1m": 31, "3m": 92, "6m": 183,
-    "1y": 366, "3y": 3 * 366, "5y": 5 * 366,
+    "1y": 366, "3y": 3 * 366, "5y": 5 * 366, "10y": 10 * 366,
     "all": None,
 }
 
@@ -159,32 +159,45 @@ def _delta_rows(db_path: str, ticker: str, days: int | None, ytd: bool) -> list[
     return storage.read_history(db_path, ticker, start_date=start)
 
 
+def _sparkline_series(values: list[float], n: int = 48) -> list[float]:
+    """Evenly downsample to at most n points, always keeping the first and last
+    so the sparkline endpoints match the then/now values."""
+    if len(values) <= n:
+        return values
+    step = (len(values) - 1) / (n - 1)
+    return [values[round(i * step)] for i in range(n)]
+
+
 def _delta_point(rows: list[dict], days: int | None, ytd: bool) -> dict:
     """Forward-P/E change from `now` (latest value) to `then` (value on/before
     now - window). The live forward_pe series is sparse (live snapshots + a few
     backfilled anchors), so we interpolate it to daily exactly as the chart does
     before snapping — otherwise a 1-month delta could read off an anchor a year
     back. Live forward_pe only, never IBES. `*_interpolated` flags the endpoint
-    as a filled value; `then` is None when the window predates coverage."""
+    as a filled value; `then` is None when the window predates coverage. `series`
+    is the interpolated forward_pe over the window (then..now) for a sparkline."""
     rows = _interpolate_series(rows, "forward_pe", "forward_pe_interpolated")
     pts = [(r["date"], r["forward_pe"], r["forward_pe_interpolated"])
            for r in rows if r.get("forward_pe") is not None]
     empty = {"now_date": None, "now": None, "now_interpolated": None,
              "then_date": None, "then": None, "then_interpolated": None,
-             "delta": None, "delta_pct": None}
+             "delta": None, "delta_pct": None, "series": []}
     if not pts:
         return empty
     now_date, now_val, now_interp = pts[-1]
     target = _window_target(now_date, days, ytd)
     then = next(((d, v, fl) for d, v, fl in reversed(pts) if d <= target), None)
+    window_start = then[0] if then else target
+    series = _sparkline_series([v for d, v, _ in pts if d >= window_start])
     if then is None:
         return {**empty, "now_date": now_date, "now": now_val,
-                "now_interpolated": now_interp}
+                "now_interpolated": now_interp, "series": series}
     then_date, then_val, then_interp = then
     delta = now_val - then_val
     return {"now_date": now_date, "now": now_val, "now_interpolated": now_interp,
             "then_date": then_date, "then": then_val, "then_interpolated": then_interp,
-            "delta": delta, "delta_pct": (delta / then_val) if then_val else None}
+            "delta": delta, "delta_pct": (delta / then_val) if then_val else None,
+            "series": series}
 
 
 def _parse_iso_date(s: str | None) -> str | None:

@@ -45,6 +45,7 @@ header .meta{color:var(--muted);font-size:.8rem;font-weight:normal}
 #delta-grid .up{color:var(--up);font-weight:600}
 #delta-grid .down{color:var(--down);font-weight:600}
 #delta-grid .flat{color:var(--muted)}
+#delta-grid .spark{display:block;margin-top:3px}
 </style>
 </head>
 <body>
@@ -83,6 +84,23 @@ const asof = d => (d ? `<span class="asof">${d}</span>` : "");
 const valueWithDate = (val, d, interp) =>
   (val == null ? "N/A" : `${interp ? "≈" : ""}${fmt(val)}${asof(d)}`);
 
+// Inline SVG sparkline of the forward-P/E over the window (then..now), colored
+// by direction (richer = green, cheaper = red). y auto-scaled to the series.
+function sparkline(values, delta) {
+  if (!values || values.length < 2) return "";
+  const w = 140, h = 26, pad = 3;
+  const min = Math.min(...values), max = Math.max(...values);
+  const span = (max - min) || 1;
+  const n = values.length;
+  const X = i => pad + (i / (n - 1)) * (w - 2 * pad);
+  const Y = v => h - pad - ((v - min) / span) * (h - 2 * pad);
+  const d = values.map((v, i) => `${i ? "L" : "M"}${X(i).toFixed(1)} ${Y(v).toFixed(1)}`).join(" ");
+  const color = delta == null ? "var(--muted)" : delta > 0 ? "var(--up)" : delta < 0 ? "var(--down)" : "var(--muted)";
+  return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`
+       + `<path d="${d}" fill="none" stroke="${color}" stroke-width="1.5" `
+       + `stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+}
+
 // up = richer (P/E expanded), down = cheaper. Neutral framing, no good/bad.
 const moveClass = {
   up:   p => p.value != null && p.value > 0,
@@ -99,6 +117,8 @@ const COLUMN_DEFS = [
    cellRenderer: p => valueWithDate(p.value, p.data.then_date, p.data.then_interpolated)},
   {field: "now", headerName: "Fwd P/E (now)", type: "numericColumn", flex: 1.5,
    cellRenderer: p => valueWithDate(p.value, p.data.now_date, p.data.now_interpolated)},
+  {field: "series", headerName: "Trend", width: 160, sortable: false,
+   cellRenderer: p => sparkline(p.data.series, p.data.delta)},
   {field: "delta", headerName: "Δ", type: "numericColumn", flex: 1,
    cellRenderer: p => fmtSigned(p.value), cellClassRules: moveClass},
   {field: "delta_pct", headerName: "Δ%", type: "numericColumn", flex: 1,
