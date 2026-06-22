@@ -37,7 +37,7 @@ header .meta{color:var(--muted);font-size:.8rem;font-weight:normal}
 }
 .window-btn:hover{background:var(--surface);color:var(--ink)}
 .window-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
-#delta-grid{box-shadow:var(--shadow);border-radius:var(--radius);overflow:hidden;height:calc(100vh - 10rem)}
+#delta-grid{box-shadow:var(--shadow);border-radius:var(--radius);overflow:hidden;height:calc(100vh - 13rem)}
 #delta-grid .ticker-cell{font-weight:600;color:var(--accent);font-family:ui-monospace,Menlo,monospace}
 #delta-grid .cell-link{color:inherit;text-decoration:none}
 #delta-grid .cell-link:hover{text-decoration:underline}
@@ -68,6 +68,17 @@ header .meta{color:var(--muted);font-size:.8rem;font-weight:normal}
 .col-menu label:hover{background:var(--bg)}
 .col-menu input{cursor:pointer;margin:0}
 .col-menu label.locked{opacity:.55;cursor:not-allowed}
+.formula{
+  margin:.1rem 0 .75rem;color:var(--muted);font-size:.8rem;line-height:1.55;
+}
+.formula code{
+  background:var(--surface);border:1px solid var(--border);border-radius:4px;
+  padding:.05rem .35rem;color:var(--ink);
+  font-family:ui-monospace,Menlo,monospace;font-size:.92em;white-space:nowrap;
+}
+.formula b{color:var(--ink);font-weight:600}
+.formula .up{color:var(--up)}
+.formula .down{color:var(--down)}
 </style>
 </head>
 <body>
@@ -95,6 +106,14 @@ header .meta{color:var(--muted);font-size:.8rem;font-weight:normal}
     </div>
   </div>
 </div>
+
+<p class="formula">
+  Forward P/E = Price ÷ Forward EPS, so the move decomposes left-to-right:
+  <code>(1 + Δ%) = (1 + Δ Price) / (1 + Δ Fwd EPS)</code>.
+  Reading across: <b>then → now</b>, what each driver did (<b>Δ Price</b>, <b>Δ Fwd EPS</b>),
+  then each driver's exact share — <b>from Price</b> + <b>from EPS</b> = <b>Δ%</b> (percentage points).
+  P/E rises when price <span class="up">outpaces</span> EPS, falls when EPS <span class="down">outpaces</span> price.
+</p>
 
 <div id="delta-grid"></div>
 
@@ -139,6 +158,8 @@ const moveClass = {
   flat: p => p.value == null || p.value === 0,
 };
 
+// Left-to-right derivation: endpoints -> driver moves -> each driver's
+// contribution -> the resulting P/E change (Δ, Δ%) -> trend.
 const COLUMN_DEFS = [
   {field: "ticker", headerName: "Ticker", width: 110, pinned: "left", cellClass: "ticker-cell",
    cellRenderer: p => `<a href="${Y_QUOTE(p.value)}" target="_blank" rel="noopener" class="cell-link">${p.value}</a>`},
@@ -148,12 +169,6 @@ const COLUMN_DEFS = [
    cellRenderer: p => valueWithDate(p.value, p.data.then_date, p.data.then_interpolated)},
   {field: "now", headerName: "Fwd P/E (now)", type: "numericColumn", flex: 1.5,
    cellRenderer: p => valueWithDate(p.value, p.data.now_date, p.data.now_interpolated)},
-  {field: "series", headerName: "Trend", width: 160, sortable: false,
-   cellRenderer: p => sparkline(p.data.series, p.data.delta)},
-  {field: "delta", headerName: "Δ", type: "numericColumn", flex: 1,
-   cellRenderer: p => fmtSigned(p.value), cellClassRules: moveClass},
-  {field: "delta_pct", headerName: "Δ%", type: "numericColumn", flex: 1,
-   cellRenderer: p => fmtPct(p.value), cellClassRules: moveClass, comparator: numCmp},
   {field: "price_change_pct", headerName: "Δ Price", type: "numericColumn", flex: 1,
    cellRenderer: p => fmtPct(p.value), cellClassRules: moveClass, comparator: numCmp,
    headerTooltip: "Price change over the window"},
@@ -166,6 +181,12 @@ const COLUMN_DEFS = [
   {field: "eps_contrib", headerName: "from EPS", type: "numericColumn", flex: 1.1,
    cellRenderer: p => fmtPp(p.value), cellClassRules: moveClass, comparator: numCmp,
    headerTooltip: "EPS's exact contribution to Δ% (rising EPS lowers P/E)"},
+  {field: "delta", headerName: "Δ", type: "numericColumn", flex: 1,
+   cellRenderer: p => fmtSigned(p.value), cellClassRules: moveClass},
+  {field: "delta_pct", headerName: "Δ%", type: "numericColumn", flex: 1,
+   cellRenderer: p => fmtPct(p.value), cellClassRules: moveClass, comparator: numCmp},
+  {field: "series", headerName: "Trend", width: 160, sortable: false,
+   cellRenderer: p => sparkline(p.data.series, p.data.delta)},
 ];
 
 // Per-browser column visibility. We persist the *hidden* set so columns added
@@ -225,6 +246,18 @@ function initColumnChooser() {
   });
 }
 
+// Remember column widths only (per browser); order and sort are not persisted.
+const WIDTHS_KEY = "delta-col-widths";
+function saveWidths() {
+  const widths = gridApi.getColumnState().map(s => ({colId: s.colId, width: s.width, flex: s.flex}));
+  localStorage.setItem(WIDTHS_KEY, JSON.stringify(widths));
+}
+function applyWidths() {
+  let saved;
+  try { saved = JSON.parse(localStorage.getItem(WIDTHS_KEY)); } catch { saved = null; }
+  if (saved) gridApi.applyColumnState({state: saved, applyOrder: false});
+}
+
 let gridApi;
 function ensureGrid() {
   if (gridApi) return;
@@ -235,9 +268,11 @@ function ensureGrid() {
     rowData: [],
     defaultColDef: {resizable: true, sortable: true},
     getRowId: ({data}) => data.ticker,
+    onColumnResized: e => { if (e.finished && e.source === "uiColumnResized") saveWidths(); },
   });
   applyColumnVisibility();
   buildColumnChooser();
+  applyWidths();
 }
 
 let currentWindow = "1m";
