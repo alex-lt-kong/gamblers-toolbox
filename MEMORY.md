@@ -9,11 +9,12 @@ bridging them or plotting a negative P/E. Done on branch `fix/pe-chart-gaps-and-
 *signed* ratio; the "non-positive ⇒ undefined" rule lives at serve time
 (`_interpolate_series` for charts/delta, `_hide_nonpositive_pe` for the latest grid).
 
-**Immediate next steps:** Browser-verify on UAT two things: (1) loss-gap breaks on all
-three lines, and (2) the new **time-proportional x-axis** — multi-ticker (e.g. INTC+ARM on
-"All") must no longer crush old years. Then open a PR. Still open from the
-`feat/pe-chart-enhancements` review: guard chart history against stale responses, and fetch
-a pre-window anchor before interpolating custom ranges. (DB backup already deleted.)
+**Immediate next steps:** Chart work is now **browser-verified locally via Playwright** (see
+Notes) — loss-gap breaks, time-proportional axis, volume/line alignment, and even date ticks
+all confirmed with hard numbers + screenshots. Open the PR. Still open from the
+`feat/pe-chart-enhancements` review: guard chart history against stale responses (causes a
+transient wrong window on fast range-switching), and fetch a pre-window anchor before
+interpolating custom ranges.
 
 - `core/` — host shell: `module.py` (interface), `registry.py` (discovery), `auth.py`
   (token→cookie gate), typed `config.py` (Pydantic `HostConfig`), `main.py`
@@ -38,6 +39,12 @@ ai_ratios JSON-snapshot persistence; an exempt `/healthz` endpoint.
   `--factory core.main:create_app`. Run schedulers on one instance only.
 - Refreshes are single-flight; ai_ratios keeps last-known-good below 95% coverage.
 - Tests: `pip install -r requirements-dev.txt && python -m pytest` (21 integration tests).
+- Live E2E (Playwright): `npm i playwright` in `~/pwtest` + `npx playwright install chromium`;
+  run `python3 -m core --config config.toml` on :9090 (token `demo-token-1234`, prod-copy DB).
+  Drive: select tickers via `gridApi.forEachNode(n => n.setSelected(true))`, click
+  `.range-btn[data-range=...]`, then read `chartInstances` scales (geometry/ticks) or
+  screenshot `#chart-card-<T>`. Jinja auto-reloads dashboard.html (no app restart needed).
+  npm registry reachable here; external UAT host is NOT (sandbox egress).
 
 ## Activity Log
 
@@ -71,6 +78,12 @@ ai_ratios JSON-snapshot persistence; an exempt `/healthz` endpoint.
   to exact axis pixels. Caught+fixed there: bar charts default `offset:true`, insetting the
   volume bars to ~83% of the width while the lines use the full axis (looked like vol not
   matching the lines / data "squished") — forced `offset:false` on both x-axes.
+- Stood up local **Playwright** E2E (headless Chromium + app on :9090). It caught what the
+  headless axis-math missed: the volume x-axis reserves a right gutter for its last date
+  label that the label-less P/E axis didn't → ~29px misalignment (pe_plot 1023 vs vol 994).
+  Fixed with `pinX` (afterFit `paddingRight=36`) on both → both `[58,992]`. Also added even
+  round-date ticks (`niceDateTicks` + `fmtDateTick`) and cleared the review findings (2 stale
+  comments, single-point-extent guard). All Playwright-verified (geometry, ticks, no errors).
 
 ### 2026-06-23 — Review `feat/pe-chart-enhancements`
 - Compared the fetched feature ref against `origin/main` (3 commits; 4 files).

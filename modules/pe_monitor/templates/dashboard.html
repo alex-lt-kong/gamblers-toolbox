@@ -263,10 +263,8 @@ const Y_AXIS_WIDTH = 58;  // pin both charts so date axes line up
 // the line was backfilled (Wayback for fwd P/E, yfinance for everything
 // else); anything to the right is from live daily snapshots.
 //
-// The x-axis is categorical (one slot per data row), so we find the first
-// row >= cutoff and interpolate between it and the prior row by real-date
-// proportion. That way the line lands in the visually-correct gap even
-// when no row exactly matches the cutoff date.
+// The x-axis is a linear time scale, so we map the cutoff date straight to a
+// pixel and skip drawing when it falls outside the visible range.
 const cutoffLinePlugin = {
   id: "cutoffLine",
   afterDatasetsDraw(chart, _args, opts) {
@@ -310,6 +308,30 @@ function timeExtent() {
   return [lo, hi];
 }
 const fmtDateAxis = ms => new Date(ms).toISOString().slice(0, 10);
+// Even date ticks (round years / quarters) — a plain linear axis would place
+// ticks at round numbers, i.e. arbitrary dates. Pick the finest step that keeps
+// the count under `target`, aligned to year/quarter/month boundaries.
+function niceDateTicks(min, max, target = 7) {
+  const YR = 365.25 * 864e5, span = max - min;
+  const stepsM = [1, 3, 6, 12, 24, 60, 120, 240, 600];
+  const stepM = stepsM.find(s => span / (s / 12 * YR) <= target) || 600;
+  const d = new Date(min);
+  let y = d.getUTCFullYear(), m = 0;
+  if (stepM >= 12) y = Math.floor(y / (stepM / 12)) * (stepM / 12);
+  else m = Math.floor(d.getUTCMonth() / stepM) * stepM;
+  const ticks = [];
+  for (let t = Date.UTC(y, m, 1); t <= max; ) {
+    if (t >= min) ticks.push({value: t});
+    if (stepM >= 12) y += stepM / 12; else { m += stepM; if (m >= 12) { m = 0; y++; } }
+    t = Date.UTC(y, m, 1);
+  }
+  return ticks;
+}
+const fmtDateTick = ms => {
+  const d = new Date(ms);
+  return d.getUTCMonth() === 0 ? String(d.getUTCFullYear())
+    : d.getUTCFullYear() + "-" + String(d.getUTCMonth() + 1).padStart(2, "0");
+};
 
 const Y = {
   quote:    t => `https://finance.yahoo.com/quote/${encodeURIComponent(t)}/`,
@@ -398,8 +420,8 @@ function onSelectionChanged() {
     }
   }
   updateHistoryPlaceholder();
-  // Adding/removing a ticker can widen or narrow the shared axis, so re-render
-  // every visible chart against the new union, not just the one that changed.
+  // Adding/removing a ticker can widen or narrow the shared time axis, so re-render
+  // every visible chart against the new extent, not just the one that changed.
   renderCharts().then(() => {
     if (!newlyAdded) return;
     requestAnimationFrame(() => {
@@ -505,7 +527,8 @@ async function renderCharts() {
     historyRows.set(t, rows);
   }));
   if (seq !== renderSeq) return;     // superseded — don't render stale data
-  const [xMin, xMax] = timeExtent();
+  let [xMin, xMax] = timeExtent();
+  if (xMin === xMax) { xMin -= 864e5; xMax += 864e5; }  // pad a single-point extent
   for (const t of visibleCharts) renderChart(t, xMin, xMax);
 }
 
@@ -544,8 +567,12 @@ function renderChart(ticker, xMin, xMax) {
   const pinWidth = axis => { axis.width = Y_AXIS_WIDTH; };
   const lineStyle = {tension: 0.2, spanGaps: false, borderWidth: 1.5, pointRadius: 1.5, pointHoverRadius: 4};
   // offset:false on both charts (bar defaults to true) so a date maps to the same
-  // pixel in the line and volume charts — otherwise they drift out of alignment.
-  const xAxis = extra => ({type: "linear", offset: false, min: xMin, max: xMax, ...extra});
+  // pixel in the line and volume charts. pinX reserves the same right gutter on
+  // both — the volume axis pads for its last date label, the label-less P/E axis
+  // would otherwise run wider — so the bars line up under the lines.
+  const pinX = s => { s.paddingRight = 36; };
+  const xAxis = extra => ({type: "linear", offset: false, min: xMin, max: xMax,
+                           afterFit: pinX, ...extra});
   const dateTitle = items => (items.length ? fmtDateAxis(items[0].parsed.x) : "");
 
   const peChart = new Chart(peCtx, {
@@ -599,7 +626,8 @@ function renderChart(ticker, xMin, xMax) {
           afterFit: pinWidth,
           ticks: {callback: fmtVolumeAxis, maxTicksLimit: 3},
         },
-        x: xAxis({ticks: {callback: fmtDateAxis, maxRotation: 0, autoSkip: true, maxTicksLimit: 8}, grid: {display: false}}),
+        x: xAxis({ticks: {callback: fmtDateTick, maxRotation: 0, autoSkip: false}, grid: {display: false},
+                  afterBuildTicks: s => { s.ticks = niceDateTicks(s.min, s.max); }}),
       },
     },
   });
