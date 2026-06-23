@@ -1,3 +1,5 @@
 -r requirements.txt
 pytest~=9.1.1
 httpx~=0.28.1            # Starlette TestClient backend (staying on httpx, see pytest.ini)
+playwright~=1.60         # E2E chart test (tests/test_chart_e2e.py); run: playwright install chromium
+                         # the test auto-skips when playwright/chromium aren't installed
