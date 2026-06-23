@@ -9,12 +9,12 @@ bridging them or plotting a negative P/E. Done on branch `fix/pe-chart-gaps-and-
 *signed* ratio; the "non-positive ⇒ undefined" rule lives at serve time
 (`_interpolate_series` for charts/delta, `_hide_nonpositive_pe` for the latest grid).
 
-**Immediate next steps:** Chart work is now **browser-verified locally via Playwright** (see
-Notes) — loss-gap breaks, time-proportional axis, volume/line alignment, and even date ticks
-all confirmed with hard numbers + screenshots. Open the PR. Still open from the
-`feat/pe-chart-enhancements` review: guard chart history against stale responses (causes a
-transient wrong window on fast range-switching), and fetch a pre-window anchor before
-interpolating custom ranges.
+**Immediate next steps:** Open the PR — chart work is Playwright-verified (breaks, time axis,
+alignment, even ticks, loss bands) and the review findings are addressed (delta N/A on loss;
+custom-range right-anchor; zero-P/E guard). Still open: guard chart history against stale
+responses (transient wrong window on fast range-switching). Deferred to a follow-up PR:
+gap-aware downsampling (loss gaps can vanish at coarse zoom), the explicit-series-state
+refactor, and a Playwright/JS E2E test (covers the untested chart JS).
 
 - `core/` — host shell: `module.py` (interface), `registry.py` (discovery), `auth.py`
   (token→cookie gate), typed `config.py` (Pydantic `HostConfig`), `main.py`
@@ -91,6 +91,12 @@ ai_ratios JSON-snapshot persistence; an exempt `/healthz` endpoint.
   client can't tell a forecast-loss null from a no-data null at the *visible edge* (e.g. MU's
   IBES loss starts before its first in-window positive anchor). Sub-3-week gaps dropped as
   interp noise. Playwright-verified: INTC blue-only, MU blue+green, NIO blue+red+green.
+- Review findings fixed: delta `now` → N/A when the latest forward P/E is a loss (was a stale
+  pre-loss value); `_history_rows` reaches forward to the right anchor (new
+  `storage.earliest_value_date`) so a custom window inside a sparse gap interpolates instead
+  of rendering blank (verified on MU 2021-08: 0 → 5 values); a stored 0 P/E is nulled (was
+  plotting y:0). +3 tests (36 total). Deferred to a follow-up PR: gap-aware downsampling,
+  explicit-series-state refactor, Playwright/JS E2E.
 
 ### 2026-06-23 — Review `feat/pe-chart-enhancements`
 - Compared the fetched feature ref against `origin/main` (3 commits; 4 files).

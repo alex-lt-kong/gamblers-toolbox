@@ -101,6 +101,31 @@ def latest_value_date(
     return row[0] if row and row[0] else None
 
 
+def earliest_value_date(
+    db_path: str,
+    ticker: str,
+    column: str,
+    on_or_after: str | None = None,
+    require_price: bool = False,
+) -> str | None:
+    """Earliest date for `ticker` where `column` is non-NULL, optionally on/after
+    `on_or_after` and requiring a positive price. None when nothing matches. The
+    mirror of `latest_value_date` — used to fetch the right-hand interpolation
+    anchor when a custom window ends inside a sparse gap."""
+    if column not in ROW_COLS:
+        raise ValueError(f"unknown column: {column}")
+    sql = f"SELECT MIN(date) FROM history WHERE ticker = ? AND {column} IS NOT NULL"
+    params: list = [ticker.upper()]
+    if require_price:
+        sql += " AND price > 0"
+    if on_or_after:
+        sql += " AND date >= ?"
+        params.append(on_or_after)
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute(sql, params).fetchone()
+    return row[0] if row and row[0] else None
+
+
 def latest_per_ticker(db_path: str, tickers: list[str]) -> list[dict]:
     """Return the most-recent row per requested ticker, with empty stubs for
     tickers that have no rows yet. Order matches the input `tickers` list."""

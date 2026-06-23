@@ -109,6 +109,8 @@ def _interpolate_series(rows: list[dict], value_col: str, flag_col: str) -> list
     for r in rows:
         r[flag_col] = False
         r[loss_col] = False
+        if r.get(value_col) == 0:
+            r[value_col] = None  # a 0 P/E is a degenerate placeholder, not a value
     # An anchor carries a real, priced P/E. `r.get(value_col)` is falsy for both
     # None and 0, so a zero P/E is skipped (its EPS would be infinite); a negative
     # P/E (forecast loss) is kept — its sign is what places the break.
@@ -308,26 +310,34 @@ def api_delta(window: str = Query("1m")):
 def _history_rows(
     db_path: str, ticker: str, start_date: str | None, end_date: str | None
 ) -> list[dict]:
-    """Interpolated history for [start_date, end_date]. When a start is given we
-    read back to the last real anchor (forward_pe and IBES, each with a price) on
-    or before it, so interpolation has a left anchor across a window-start gap,
-    then clip to the requested window. Otherwise a window starting inside a sparse
-    gap would show a blank P/E segment until the next in-window anchor."""
-    read_start = start_date
+    """Interpolated history for [start_date, end_date]. We read OUT to the real
+    anchors (forward_pe and IBES, each priced) just before `start_date` and just
+    after `end_date`, so interpolation has anchors on both sides of a window that
+    lands inside a sparse gap, then clip back to the requested window. Otherwise a
+    custom window between two anchors would render a blank P/E segment."""
+    SERIES = ("forward_pe", "forward_pe_ibes")
+    read_start, read_end = start_date, end_date
     if start_date:
-        anchors = [
-            storage.latest_value_date(db_path, ticker, col,
-                                      on_or_before=start_date, require_price=True)
-            for col in ("forward_pe", "forward_pe_ibes")
-        ]
-        anchors = [a for a in anchors if a]
-        if anchors:
-            read_start = min(anchors + [start_date])
-    rows = storage.read_history(db_path, ticker, start_date=read_start, end_date=end_date)
+        lefts = [storage.latest_value_date(db_path, ticker, col,
+                                           on_or_before=start_date, require_price=True)
+                 for col in SERIES]
+        lefts = [a for a in lefts if a]
+        if lefts:
+            read_start = min(lefts + [start_date])
+    if end_date:
+        rights = [storage.earliest_value_date(db_path, ticker, col,
+                                              on_or_after=end_date, require_price=True)
+                  for col in SERIES]
+        rights = [a for a in rights if a]
+        if rights:
+            read_end = max(rights + [end_date])
+    rows = storage.read_history(db_path, ticker, start_date=read_start, end_date=read_end)
     rows = _interpolate_series(rows, "forward_pe", "forward_pe_interpolated")
     rows = _interpolate_series(rows, "forward_pe_ibes", "forward_pe_ibes_interpolated")
     if start_date:
         rows = [r for r in rows if r["date"] >= start_date]
+    if end_date:
+        rows = [r for r in rows if r["date"] <= end_date]
     return rows
 
 
