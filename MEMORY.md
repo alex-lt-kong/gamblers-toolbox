@@ -9,11 +9,11 @@ bridging them or plotting a negative P/E. Done on branch `fix/pe-chart-gaps-and-
 *signed* ratio; the "non-positive ⇒ undefined" rule lives at serve time
 (`_interpolate_series` for charts/delta, `_hide_nonpositive_pe` for the latest grid).
 
-**Immediate next steps:** Visual-verify the breaks (MU IBES Jul–Sep 2023; NIO mostly
-broken) then open a PR. Still open from the `feat/pe-chart-enhancements` review: guard
-chart history against stale responses, and fetch a pre-window anchor before interpolating
-custom ranges. The DB backup `modules/pe_monitor/pe_history.db.bak-d9866cf` can be deleted
-once merged.
+**Immediate next steps:** Browser-verify on UAT two things: (1) loss-gap breaks on all
+three lines, and (2) the new **time-proportional x-axis** — multi-ticker (e.g. INTC+ARM on
+"All") must no longer crush old years. Then open a PR. Still open from the
+`feat/pe-chart-enhancements` review: guard chart history against stale responses, and fetch
+a pre-window anchor before interpolating custom ranges. (DB backup already deleted.)
 
 - `core/` — host shell: `module.py` (interface), `registry.py` (discovery), `auth.py`
   (token→cookie gate), typed `config.py` (Pydantic `HostConfig`), `main.py`
@@ -61,7 +61,13 @@ ai_ratios JSON-snapshot persistence; an exempt `/healthz` endpoint.
 - An earlier "drop negatives at source + null the DB" attempt was reverted in favour of Y.
   Verified: 33 tests pass (+`test_interpolate_breaks_across_forward_loss`); MU IBES breaks
   Jul–Sep 2023; 0 negatives served across all 39 tickers; NIO → 98 positive fwd-P/E days.
-  Pre-restore DB backup `pe_history.db.bak-d9866cf` deletable after merge.
+- Follow-up refactor (same branch): replaced the categorical *union-date* x-axis with a
+  shared **linear time axis** (x = epoch-ms). The union made per-ticker density distort time
+  — equal calendar spans rendered at unequal width (INTC 1986→ at 30d buckets vs ARM daily ⇒
+  recent years ~15× wider). This deletes `unionDates`/`alignRows`/`col`/`genuineGap`, so
+  `segmentBreak` is gone too — replaced by plain `spanGaps:false` (one ticker per chart ⇒
+  every null is a genuine gap). `cutoffLine` maps date→pixel via the scale. NOT yet
+  browser-verified here (no headless render); Python tests only confirm the template renders.
 
 ### 2026-06-23 — Review `feat/pe-chart-enhancements`
 - Compared the fetched feature ref against `origin/main` (3 commits; 4 files).
