@@ -10,6 +10,7 @@
 <link rel="manifest" href="{{ url_for('pe_monitor_static', path='manifest.webmanifest') }}">
 <meta name="theme-color" content="#0d6efd">
 <script src="{{ url_for('pe_monitor_static', path='ag-grid-community.min.js') }}"></script>
+<script src="{{ url_for('pe_monitor_static', path='grid-prefs.js') }}"></script>
 <style>
 :root{
   --bg:#f8f9fa; --surface:#fff; --ink:#212529; --muted:#6c757d;
@@ -37,7 +38,7 @@ header .meta{color:var(--muted);font-size:.8rem;font-weight:normal}
 }
 .window-btn:hover{background:var(--surface);color:var(--ink)}
 .window-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
-#delta-grid{box-shadow:var(--shadow);border-radius:var(--radius);overflow:hidden;height:calc(100vh - 10rem)}
+#delta-grid{box-shadow:var(--shadow);border-radius:var(--radius);overflow:hidden;height:calc(100vh - 13rem)}
 #delta-grid .ticker-cell{font-weight:600;color:var(--accent);font-family:ui-monospace,Menlo,monospace}
 #delta-grid .cell-link{color:inherit;text-decoration:none}
 #delta-grid .cell-link:hover{text-decoration:underline}
@@ -45,6 +46,40 @@ header .meta{color:var(--muted);font-size:.8rem;font-weight:normal}
 #delta-grid .up{color:var(--up);font-weight:600}
 #delta-grid .down{color:var(--down);font-weight:600}
 #delta-grid .flat{color:var(--muted)}
+#delta-grid .spark{display:block;margin-top:3px}
+.toolbar-right{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}
+.col-chooser{position:relative}
+.col-chooser-btn{
+  background:transparent;color:var(--muted);border:1px solid var(--border);
+  padding:.2rem .6rem;border-radius:4px;cursor:pointer;font-size:.72rem;
+  font-weight:600;letter-spacing:.3px;
+}
+.col-chooser-btn:hover{background:var(--surface);color:var(--ink)}
+.col-menu{
+  position:absolute;right:0;top:calc(100% + 4px);z-index:20;
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--radius);box-shadow:var(--shadow);
+  padding:.35rem;min-width:170px;display:none;
+}
+.col-menu.open{display:block}
+.col-menu label{
+  display:flex;align-items:center;gap:.5rem;padding:.3rem .45rem;
+  font-size:.82rem;cursor:pointer;border-radius:4px;white-space:nowrap;
+}
+.col-menu label:hover{background:var(--bg)}
+.col-menu input{cursor:pointer;margin:0}
+.col-menu label.locked{opacity:.55;cursor:not-allowed}
+.formula{
+  margin:.1rem 0 .75rem;color:var(--muted);font-size:.8rem;line-height:1.55;
+}
+.formula code{
+  background:var(--surface);border:1px solid var(--border);border-radius:4px;
+  padding:.05rem .35rem;color:var(--ink);
+  font-family:ui-monospace,Menlo,monospace;font-size:.92em;white-space:nowrap;
+}
+.formula b{color:var(--ink);font-weight:600}
+.formula .up{color:var(--up)}
+.formula .down{color:var(--down)}
 </style>
 </head>
 <body>
@@ -55,16 +90,31 @@ header .meta{color:var(--muted);font-size:.8rem;font-weight:normal}
 
 <div class="toolbar">
   <h2>Change over period</h2>
-  <div class="window-selector" id="window-selector">
-    <button class="window-btn" data-window="1d">1D</button>
-    <button class="window-btn" data-window="1w">1W</button>
-    <button class="window-btn active" data-window="1m">1M</button>
-    <button class="window-btn" data-window="3m">3M</button>
-    <button class="window-btn" data-window="6m">6M</button>
-    <button class="window-btn" data-window="ytd">YTD</button>
-    <button class="window-btn" data-window="1y">1Y</button>
+  <div class="toolbar-right">
+    <div class="window-selector" id="window-selector">
+      <button class="window-btn" data-window="1d">1D</button>
+      <button class="window-btn" data-window="1w">1W</button>
+      <button class="window-btn active" data-window="1m">1M</button>
+      <button class="window-btn" data-window="3m">3M</button>
+      <button class="window-btn" data-window="6m">6M</button>
+      <button class="window-btn" data-window="ytd">YTD</button>
+      <button class="window-btn" data-window="1y">1Y</button>
+    </div>
+    <div class="col-chooser">
+      <button type="button" class="col-chooser-btn" id="col-chooser-btn"
+              aria-haspopup="true" aria-expanded="false">Columns ▾</button>
+      <div class="col-menu" id="col-menu" role="menu"></div>
+    </div>
   </div>
 </div>
+
+<p class="formula">
+  Forward P/E = Price ÷ Forward EPS, so the move decomposes left-to-right:
+  <code>(1 + Δ%) = (1 + Δ Price) / (1 + Δ Fwd EPS)</code>.
+  Reading across: <b>then → now</b>, what each driver did (<b>Δ Price</b>, <b>Δ Fwd EPS</b>),
+  then each driver's exact share — <b>from Price</b> + <b>from EPS</b> = <b>Δ%</b> (percentage points).
+  P/E rises when price <span class="up">outpaces</span> EPS, falls when EPS <span class="down">outpaces</span> price.
+</p>
 
 <div id="delta-grid"></div>
 
@@ -77,11 +127,30 @@ const escapeHtml = s => String(s).replace(/[&<>"']/g, c =>
 const fmt = v => (v == null ? "N/A" : Number(v).toFixed(2));
 const fmtSigned = v => (v == null ? "N/A" : (v >= 0 ? "+" : "") + Number(v).toFixed(2));
 const fmtPct = v => (v == null ? "N/A" : (v >= 0 ? "+" : "") + (Number(v) * 100).toFixed(1) + "%");
+const fmtPp = v => (v == null ? "N/A" : (v >= 0 ? "+" : "") + (Number(v) * 100).toFixed(1) + "pp");
+const numCmp = (a, b) => (a == null ? -Infinity : a) - (b == null ? -Infinity : b);
 const asof = d => (d ? `<span class="asof">${d}</span>` : "");
 // "≈" marks an interpolated endpoint: the live forward P/E was sparse near that
 // date, so the value is filled from daily price + implied EPS (same as the chart).
 const valueWithDate = (val, d, interp) =>
   (val == null ? "N/A" : `${interp ? "≈" : ""}${fmt(val)}${asof(d)}`);
+
+// Inline SVG sparkline of the forward-P/E over the window (then..now), colored
+// by direction (richer = green, cheaper = red). y auto-scaled to the series.
+function sparkline(values, delta) {
+  if (!values || values.length < 2) return "";
+  const w = 140, h = 26, pad = 3;
+  const min = Math.min(...values), max = Math.max(...values);
+  const span = (max - min) || 1;
+  const n = values.length;
+  const X = i => pad + (i / (n - 1)) * (w - 2 * pad);
+  const Y = v => h - pad - ((v - min) / span) * (h - 2 * pad);
+  const d = values.map((v, i) => `${i ? "L" : "M"}${X(i).toFixed(1)} ${Y(v).toFixed(1)}`).join(" ");
+  const color = delta == null ? "var(--muted)" : delta > 0 ? "var(--up)" : delta < 0 ? "var(--down)" : "var(--muted)";
+  return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`
+       + `<path d="${d}" fill="none" stroke="${color}" stroke-width="1.5" `
+       + `stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+}
 
 // up = richer (P/E expanded), down = cheaper. Neutral framing, no good/bad.
 const moveClass = {
@@ -90,6 +159,8 @@ const moveClass = {
   flat: p => p.value == null || p.value === 0,
 };
 
+// Left-to-right derivation: endpoints -> driver moves -> each driver's
+// contribution -> the resulting P/E change (Δ, Δ%) -> trend.
 const COLUMN_DEFS = [
   {field: "ticker", headerName: "Ticker", width: 110, pinned: "left", cellClass: "ticker-cell",
    cellRenderer: p => `<a href="${Y_QUOTE(p.value)}" target="_blank" rel="noopener" class="cell-link">${p.value}</a>`},
@@ -99,14 +170,28 @@ const COLUMN_DEFS = [
    cellRenderer: p => valueWithDate(p.value, p.data.then_date, p.data.then_interpolated)},
   {field: "now", headerName: "Fwd P/E (now)", type: "numericColumn", flex: 1.5,
    cellRenderer: p => valueWithDate(p.value, p.data.now_date, p.data.now_interpolated)},
+  {field: "price_change_pct", headerName: "Δ Price", type: "numericColumn", flex: 1,
+   cellRenderer: p => fmtPct(p.value), cellClassRules: moveClass, comparator: numCmp,
+   headerTooltip: "Price change over the window"},
+  {field: "eps_change_pct", headerName: "Δ Fwd EPS", type: "numericColumn", flex: 1.1,
+   cellRenderer: p => fmtPct(p.value), cellClassRules: moveClass, comparator: numCmp,
+   headerTooltip: "Implied forward EPS (price / forward P/E) change over the window"},
+  {field: "price_contrib", headerName: "from Price", type: "numericColumn", flex: 1.1,
+   cellRenderer: p => fmtPp(p.value), cellClassRules: moveClass, comparator: numCmp,
+   headerTooltip: "Price's exact contribution to Δ% (from Price + from EPS = Δ%)"},
+  {field: "eps_contrib", headerName: "from EPS", type: "numericColumn", flex: 1.1,
+   cellRenderer: p => fmtPp(p.value), cellClassRules: moveClass, comparator: numCmp,
+   headerTooltip: "EPS's exact contribution to Δ% (rising EPS lowers P/E)"},
   {field: "delta", headerName: "Δ", type: "numericColumn", flex: 1,
    cellRenderer: p => fmtSigned(p.value), cellClassRules: moveClass},
   {field: "delta_pct", headerName: "Δ%", type: "numericColumn", flex: 1,
-   cellRenderer: p => fmtPct(p.value), cellClassRules: moveClass,
-   comparator: (a, b) => (a == null ? -Infinity : a) - (b == null ? -Infinity : b)},
+   cellRenderer: p => fmtPct(p.value), cellClassRules: moveClass, comparator: numCmp},
+  {field: "series", headerName: "Trend", width: 160, sortable: false,
+   cellRenderer: p => sparkline(p.data.series, p.data.delta)},
 ];
 
 let gridApi;
+let gridPrefs;  // shared column visibility/width persistence (grid-prefs.js)
 function ensureGrid() {
   if (gridApi) return;
   agGrid.ModuleRegistry.registerModules([agGrid.AllCommunityModule]);
@@ -116,6 +201,14 @@ function ensureGrid() {
     rowData: [],
     defaultColDef: {resizable: true, sortable: true},
     getRowId: ({data}) => data.ticker,
+    onColumnResized: e => gridPrefs && gridPrefs.onColumnResized(e),
+  });
+  gridPrefs = GridPrefs.create({
+    gridApi, columnDefs: COLUMN_DEFS,
+    hiddenKey: "delta-hidden-cols", widthsKey: "delta-col-widths",
+    locked: ["ticker"],
+    chooserBtn: document.getElementById("col-chooser-btn"),
+    chooserMenu: document.getElementById("col-menu"),
   });
 }
 

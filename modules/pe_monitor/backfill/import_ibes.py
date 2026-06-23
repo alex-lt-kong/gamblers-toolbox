@@ -95,7 +95,7 @@ def build_anchors(stat_csv: str, act_csv: str, codes: set[str]) -> pd.DataFrame:
            .drop_duplicates(["TICKER", "STATPERS"], keep="first"))
 
     j = j.dropna(subset=["PRICE", "MEANEST"])
-    j = j[j["MEANEST"] != 0]
+    j = j[j["MEANEST"] != 0]  # only drop zero (div-by-zero); negatives are real data
     j["anchor_pe"] = j["PRICE"] / j["MEANEST"]
     return j.rename(columns={"CURR_PRICE": "price_cc"})[
         ["TICKER", "STATPERS", "anchor_pe", "est_cc", "price_cc"]]

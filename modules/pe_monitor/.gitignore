@@ -3,14 +3,15 @@ pe_history.db
 pe_history.db-journal
 pe_history.db-wal
 pe_history.db-shm
+pe_history.db.bak*
 pe_history/
 
 # Wayback backfill artifacts (one-shot, not for version control)
 wayback_out/
 wayback*.log
 
-# IBES dumps — multi-GB CSVs, not for version control (see [ibes] in config)
-ibes.*.csv
+# IBES dumps — multi-GB CSVs/zips, not for version control (see [ibes] in config)
+ibes.*.csv*
 
 # Real config (copy from config.sample.toml)
 config.toml

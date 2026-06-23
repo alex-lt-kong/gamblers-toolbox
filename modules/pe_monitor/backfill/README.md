@@ -45,11 +45,6 @@ python backfill/import_ibes.py --dry-run     # report only
 python backfill/import_ibes.py               # write anchors
 ```
 
-Helpers:
-- `check_ibes_consistency.py` — cross-checks DB forward P/E against an IBES
-  consensus dump (validation only; takes `--db` / `--ibes`).
-- `explore_ibes_join.ipynb` — scratch notebook used to work out the join.
-
 ## Data locations (all gitignored)
 - IBES CSVs (`ibes.*.csv`, multi-GB) live in `pe_monitor/`.
 - Wayback scrape output defaults to `./wayback_out/` and `wayback*.log`.

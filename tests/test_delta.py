@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 
 from modules.pe_monitor import config as pcfg, storage
@@ -22,6 +23,13 @@ def test_delta_snaps_to_interpolated_then():
     assert d["then"] == 15.0 and d["then_interpolated"] is True
     assert d["delta"] == 5.0
     assert d["delta_pct"] == 5.0 / 15.0
+    # Sparkline spans the window: first point == then, last == now.
+    assert d["series"][0] == 15.0 and d["series"][-1] == 20.0
+    # Decomposition: EPS is constant (10 at both ends), so the whole P/E move is
+    # price; contributions sum exactly to delta_pct.
+    assert d["price_change_pct"] == pytest.approx(1 / 3)
+    assert d["eps_change_pct"] == 0
+    assert d["price_contrib"] + d["eps_contrib"] == pytest.approx(d["delta_pct"])
 
 
 def test_delta_then_none_when_window_predates_coverage():
@@ -42,11 +50,25 @@ def test_delta_empty_series():
     assert d["now"] is None and d["then"] is None and d["delta_pct"] is None
 
 
+def test_delta_now_none_when_latest_is_a_forecast_loss():
+    # Latest forward P/E is a loss (negative) -> interpolation nulls it -> `now` must be
+    # N/A, not the stale pre-loss positive value.
+    rows = [
+        {"date": "2026-01-01", "price": 100.0, "forward_pe": 10.0},
+        {"date": "2026-02-15", "price": 50.0, "forward_pe": -20.0},  # forecast loss = now
+    ]
+    d = _delta_point([dict(r) for r in rows], days=30, ytd=False)
+    assert d["now"] is None and d["now_date"] == "2026-02-15"
+    assert d["then"] is None and d["delta"] is None and d["delta_pct"] is None
+
+
 def test_api_delta_shape_and_window_fallback(make_app):
     c = TestClient(make_app())
     rows = c.get("/pe-monitor/api/delta?window=3m").json()
     assert isinstance(rows, list) and rows
-    keys = {"ticker", "name", "window", "now", "then", "delta", "delta_pct"}
+    keys = {"ticker", "name", "window", "now", "then", "delta", "delta_pct",
+            "series", "price_change_pct", "eps_change_pct",
+            "price_contrib", "eps_contrib"}
     assert keys <= rows[0].keys()
     assert all(r["window"] == "3m" for r in rows)
     # Unknown window falls back to the 1m default.
@@ -57,6 +79,16 @@ def test_api_delta_shape_and_window_fallback(make_app):
 
 def test_delta_page_renders(make_app):
     assert TestClient(make_app()).get("/pe-monitor/delta").status_code == 200
+
+
+def test_decomposition_sums_to_delta_pct():
+    # On real data the price + EPS contributions must reconstruct delta_pct.
+    cfg = pcfg.load_config()
+    db = cfg["database_path"]
+    for t in cfg["tickers"][:6]:
+        d = _delta_point(_delta_rows(db, t, 31, False), 31, False)
+        if d["price_contrib"] is not None:
+            assert d["price_contrib"] + d["eps_contrib"] == pytest.approx(d["delta_pct"])
 
 
 def test_bounded_read_matches_full_history():

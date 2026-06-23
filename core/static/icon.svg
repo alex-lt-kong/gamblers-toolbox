@@ -1,9 +1,18 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Gambler's Toolbox">
   <rect width="512" height="512" fill="#0f172a"/>
-  <g fill="#38bdf8">
-    <rect x="133" y="288" width="46" height="90"  rx="12"/>
-    <rect x="199" y="238" width="46" height="140" rx="12"/>
-    <rect x="265" y="188" width="46" height="190" rx="12"/>
-    <rect x="331" y="128" width="46" height="250" rx="12"/>
+  <circle cx="256" cy="256" r="170" fill="#d11f2d"/>
+  <!-- rim spots: thick dashed white ring near the edge -->
+  <circle cx="256" cy="256" r="150" fill="none" stroke="#f8fafc" stroke-width="46"
+          stroke-dasharray="63 94" stroke-dashoffset="31.5"/>
+  <!-- cover the inner half so only the rim spots remain -->
+  <circle cx="256" cy="256" r="132" fill="#d11f2d"/>
+  <!-- inner ring -->
+  <circle cx="256" cy="256" r="122" fill="none" stroke="#f8fafc" stroke-width="9"/>
+  <!-- spade -->
+  <g fill="#f8fafc">
+    <polygon points="256,188 167,272 345,272"/>
+    <circle cx="214" cy="272" r="48"/>
+    <circle cx="298" cy="272" r="48"/>
+    <polygon points="244,300 268,300 290,344 222,344"/>
   </g>
 </svg>

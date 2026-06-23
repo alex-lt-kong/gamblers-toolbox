@@ -1,6 +1,7 @@
 {
+  "id": "/",
   "name": "Gambler's Toolbox",
-  "short_name": "Toolbox",
+  "short_name": "Gambler's",
   "description": "A unified home for market tools.",
   "start_url": "/",
   "scope": "/",
@@ -8,8 +9,10 @@
   "background_color": "#0f172a",
   "theme_color": "#0f172a",
   "icons": [
-    { "src": "/static/icon-192.png", "type": "image/png", "sizes": "192x192", "purpose": "any maskable" },
-    { "src": "/static/icon-512.png", "type": "image/png", "sizes": "512x512", "purpose": "any maskable" },
-    { "src": "/static/icon.svg", "type": "image/svg+xml", "sizes": "any", "purpose": "any" }
+    { "src": "/static/icon.svg", "type": "image/svg+xml", "sizes": "any" },
+    { "src": "/static/icon-192.png", "type": "image/png", "sizes": "192x192", "purpose": "any" },
+    { "src": "/static/icon-512.png", "type": "image/png", "sizes": "512x512", "purpose": "any" },
+    { "src": "/static/icon-192.png", "type": "image/png", "sizes": "192x192", "purpose": "maskable" },
+    { "src": "/static/icon-512.png", "type": "image/png", "sizes": "512x512", "purpose": "maskable" }
   ]
 }

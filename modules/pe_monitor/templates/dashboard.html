@@ -11,6 +11,7 @@
 <meta name="theme-color" content="#0d6efd">
 <script src="{{ url_for('pe_monitor_static', path='ag-grid-community.min.js') }}"></script>
 <script src="{{ url_for('pe_monitor_static', path='chart.umd.js') }}"></script>
+<script src="{{ url_for('pe_monitor_static', path='grid-prefs.js') }}"></script>
 <style>
 :root{
   --bg:#f8f9fa; --surface:#fff; --ink:#212529; --muted:#6c757d;
@@ -109,6 +110,14 @@ canvas{width:100%!important;height:100%!important}
 }
 .range-btn:hover{background:var(--surface);color:var(--ink)}
 .range-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.chart-controls{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap}
+.date-range{display:flex;align-items:center;gap:.3rem}
+.date-range input[type=date]{
+  font-family:inherit;font-size:.72rem;color:var(--ink);background:var(--surface);
+  border:1px solid var(--border);border-radius:4px;padding:.16rem .4rem;
+}
+.date-range input[type=date]:focus{outline:none;border-color:var(--accent)}
+.date-sep{color:var(--muted);font-size:.8rem}
 @keyframes flash{
   0%{box-shadow:0 0 0 3px var(--accent),var(--shadow)}
   100%{box-shadow:0 0 0 0 transparent,var(--shadow)}
@@ -171,14 +180,22 @@ canvas{width:100%!important;height:100%!important}
 <section class="charts">
   <div class="charts-toolbar">
     <h2>History</h2>
-    <div class="range-selector" id="range-selector">
-      <button class="range-btn" data-range="1m">1M</button>
-      <button class="range-btn" data-range="3m">3M</button>
-      <button class="range-btn" data-range="6m">6M</button>
-      <button class="range-btn" data-range="1y">1Y</button>
-      <button class="range-btn" data-range="3y">3Y</button>
-      <button class="range-btn" data-range="5y">5Y</button>
-      <button class="range-btn active" data-range="all">All</button>
+    <div class="chart-controls">
+      <div class="range-selector" id="range-selector">
+        <button class="range-btn" data-range="1m">1M</button>
+        <button class="range-btn" data-range="3m">3M</button>
+        <button class="range-btn" data-range="6m">6M</button>
+        <button class="range-btn" data-range="1y">1Y</button>
+        <button class="range-btn" data-range="3y">3Y</button>
+        <button class="range-btn" data-range="5y">5Y</button>
+        <button class="range-btn" data-range="10y">10Y</button>
+        <button class="range-btn active" data-range="all">All</button>
+      </div>
+      <div class="date-range" id="date-range">
+        <input type="date" id="start-date" aria-label="Start date">
+        <span class="date-sep">–</span>
+        <input type="date" id="end-date" aria-label="End date">
+      </div>
     </div>
   </div>
   <p id="history-placeholder" class="empty">Check one or more tickers above to view their historical chart.</p>
@@ -246,33 +263,16 @@ const Y_AXIS_WIDTH = 58;  // pin both charts so date axes line up
 // the line was backfilled (Wayback for fwd P/E, yfinance for everything
 // else); anything to the right is from live daily snapshots.
 //
-// The x-axis is categorical (one slot per data row), so we find the first
-// row >= cutoff and interpolate between it and the prior row by real-date
-// proportion. That way the line lands in the visually-correct gap even
-// when no row exactly matches the cutoff date.
+// The x-axis is a linear time scale, so we map the cutoff date straight to a
+// pixel and skip drawing when it falls outside the visible range.
 const cutoffLinePlugin = {
   id: "cutoffLine",
   afterDatasetsDraw(chart, _args, opts) {
     const cutoff = opts.date;
     if (!cutoff) return;
-    const labels = chart.data.labels;
-    if (!labels || !labels.length) return;
-    const idx = labels.findIndex(l => l >= cutoff);
-    if (idx === -1) return;  // cutoff is past the end — nothing to draw
-
     const xScale = chart.scales.x;
-    let xPixel;
-    if (idx === 0) {
-      xPixel = xScale.getPixelForValue(labels[0]);
-    } else {
-      const prevTime = Date.parse(labels[idx - 1]);
-      const nextTime = Date.parse(labels[idx]);
-      const cutTime = Date.parse(cutoff);
-      const prevX = xScale.getPixelForValue(labels[idx - 1]);
-      const nextX = xScale.getPixelForValue(labels[idx]);
-      const t = (cutTime - prevTime) / (nextTime - prevTime);
-      xPixel = prevX + (nextX - prevX) * t;
-    }
+    const xPixel = xScale.getPixelForValue(Date.parse(cutoff));
+    if (xPixel < xScale.left || xPixel > xScale.right) return;  // outside view
 
     const {top, bottom} = chart.chartArea;
     const ctx = chart.ctx;
@@ -289,9 +289,69 @@ const cutoffLinePlugin = {
 };
 Chart.register(cutoffLinePlugin);
 
+// Shade the stretches where a line is undefined because the company was
+// loss-making (no meaningful P/E), tinted to match the line — so a missing line
+// reads as "in a loss here", not a data glitch. Drawn behind the lines.
+const lossBandsPlugin = {
+  id: "lossBands",
+  beforeDatasetsDraw(chart, _args, opts) {
+    const bands = opts.bands;
+    if (!bands || !bands.length) return;
+    const x = chart.scales.x, {top, bottom} = chart.chartArea, ctx = chart.ctx;
+    ctx.save();
+    for (const b of bands) {
+      const x0 = Math.max(x.getPixelForValue(b.from), x.left);
+      const x1 = Math.min(x.getPixelForValue(b.to), x.right);
+      if (x1 > x0) { ctx.fillStyle = b.color; ctx.fillRect(x0, top, x1 - x0, bottom - top); }
+    }
+    ctx.restore();
+  },
+};
+Chart.register(lossBandsPlugin);
+
 let gridApi;
 const visibleCharts = new Set();
 const chartInstances = new Map();
+const historyRows = new Map();   // ticker -> fetched rows for the current range
+
+// All charts share one TIME x-axis spanning every selected ticker's date range, so
+// equal calendar spans get equal width and stacked charts still line up. Each line
+// plots its own {x: epoch-ms, y} points; a shorter-history name simply starts later.
+function timeExtent() {
+  let lo = Infinity, hi = -Infinity;
+  for (const t of visibleCharts)
+    for (const r of (historyRows.get(t) || [])) {
+      const ms = Date.parse(r.date);
+      if (ms < lo) lo = ms;
+      if (ms > hi) hi = ms;
+    }
+  return [lo, hi];
+}
+const fmtDateAxis = ms => new Date(ms).toISOString().slice(0, 10);
+// Even date ticks (round years / quarters) — a plain linear axis would place
+// ticks at round numbers, i.e. arbitrary dates. Pick the finest step that keeps
+// the count under `target`, aligned to year/quarter/month boundaries.
+function niceDateTicks(min, max, target = 7) {
+  const YR = 365.25 * 864e5, span = max - min;
+  const stepsM = [1, 3, 6, 12, 24, 60, 120, 240, 600];
+  const stepM = stepsM.find(s => span / (s / 12 * YR) <= target) || 600;
+  const d = new Date(min);
+  let y = d.getUTCFullYear(), m = 0;
+  if (stepM >= 12) y = Math.floor(y / (stepM / 12)) * (stepM / 12);
+  else m = Math.floor(d.getUTCMonth() / stepM) * stepM;
+  const ticks = [];
+  for (let t = Date.UTC(y, m, 1); t <= max; ) {
+    if (t >= min) ticks.push({value: t});
+    if (stepM >= 12) y += stepM / 12; else { m += stepM; if (m >= 12) { m = 0; y++; } }
+    t = Date.UTC(y, m, 1);
+  }
+  return ticks;
+}
+const fmtDateTick = ms => {
+  const d = new Date(ms);
+  return d.getUTCMonth() === 0 ? String(d.getUTCFullYear())
+    : d.getUTCFullYear() + "-" + String(d.getUTCMonth() + 1).padStart(2, "0");
+};
 
 const Y = {
   quote:    t => `https://finance.yahoo.com/quote/${encodeURIComponent(t)}/`,
@@ -346,79 +406,11 @@ const COLUMN_DEFS = [
     tooltipValueGetter: p => p.value ? new Date(p.value).toLocaleString() : "no successful crawl yet"},
 ];
 
-// Per-browser column visibility. We persist the *hidden* set (rather than the
-// visible one) so columns added to COLUMN_DEFS later default to shown. The
-// ticker column is locked on — it carries the row-selection checkboxes.
-const COLS_KEY = "pe-hidden-cols";
-const LOCKED_COLS = new Set(["ticker"]);
-
-function loadHiddenCols() {
-  try { return new Set(JSON.parse(localStorage.getItem(COLS_KEY)) || []); }
-  catch { return new Set(); }
-}
-function saveHiddenCols(set) {
-  localStorage.setItem(COLS_KEY, JSON.stringify([...set]));
-}
-
-function applyColumnVisibility() {
-  const hidden = loadHiddenCols();
-  for (const def of COLUMN_DEFS) {
-    const visible = LOCKED_COLS.has(def.field) || !hidden.has(def.field);
-    gridApi.setColumnsVisible([def.field], visible);
-  }
-}
-
-function buildColumnChooser() {
-  const menu = document.getElementById("col-menu");
-  const hidden = loadHiddenCols();
-  menu.innerHTML = "";
-  for (const def of COLUMN_DEFS) {
-    const locked = LOCKED_COLS.has(def.field);
-    const label = document.createElement("label");
-    if (locked) label.classList.add("locked");
-    const cb = document.createElement("input");
-    cb.type = "checkbox";
-    cb.checked = locked || !hidden.has(def.field);
-    cb.disabled = locked;
-    cb.addEventListener("change", () => {
-      const h = loadHiddenCols();
-      if (cb.checked) h.delete(def.field); else h.add(def.field);
-      saveHiddenCols(h);
-      gridApi.setColumnsVisible([def.field], cb.checked);
-    });
-    label.append(cb, document.createTextNode(def.headerName));
-    menu.appendChild(label);
-  }
-}
-
-function initColumnChooser() {
-  const btn = document.getElementById("col-chooser-btn");
-  const menu = document.getElementById("col-menu");
-  if (!btn || !menu) return;
-  btn.addEventListener("click", e => {
-    e.stopPropagation();
-    const open = menu.classList.toggle("open");
-    btn.setAttribute("aria-expanded", String(open));
-  });
-  // Close on outside click; keep open when interacting with the menu itself.
-  menu.addEventListener("click", e => e.stopPropagation());
-  document.addEventListener("click", () => {
-    menu.classList.remove("open");
-    btn.setAttribute("aria-expanded", "false");
-  });
-}
+let gridPrefs;  // shared column visibility/width persistence (grid-prefs.js)
 
 function updateHistoryPlaceholder() {
   const ph = document.getElementById("history-placeholder");
   if (ph) ph.style.display = visibleCharts.size === 0 ? "" : "none";
-}
-
-function showChart(ticker) {
-  const card = document.getElementById(`chart-card-${ticker}`);
-  if (!card) return;
-  card.style.display = "";
-  visibleCharts.add(ticker);
-  loadChart(ticker);
 }
 
 function destroyCharts(ticker) {
@@ -429,25 +421,29 @@ function destroyCharts(ticker) {
   chartInstances.delete(ticker);
 }
 
-function hideChart(ticker) {
-  const card = document.getElementById(`chart-card-${ticker}`);
-  if (!card) return;
-  card.style.display = "none";
-  destroyCharts(ticker);
-  visibleCharts.delete(ticker);
-}
-
 function onSelectionChanged() {
   const selected = new Set(gridApi.getSelectedRows().map(r => r.ticker));
   let newlyAdded = null;
   for (const t of selected) {
-    if (!visibleCharts.has(t)) { showChart(t); newlyAdded = t; }
+    if (!visibleCharts.has(t)) {
+      document.getElementById(`chart-card-${t}`).style.display = "";
+      visibleCharts.add(t);
+      newlyAdded = t;
+    }
   }
   for (const t of [...visibleCharts]) {
-    if (!selected.has(t)) hideChart(t);
+    if (!selected.has(t)) {
+      document.getElementById(`chart-card-${t}`).style.display = "none";
+      destroyCharts(t);
+      historyRows.delete(t);
+      visibleCharts.delete(t);
+    }
   }
   updateHistoryPlaceholder();
-  if (newlyAdded) {
+  // Adding/removing a ticker can widen or narrow the shared time axis, so re-render
+  // every visible chart against the new extent, not just the one that changed.
+  renderCharts().then(() => {
+    if (!newlyAdded) return;
     requestAnimationFrame(() => {
       const card = document.getElementById(`chart-card-${newlyAdded}`);
       if (!card) return;
@@ -456,7 +452,7 @@ function onSelectionChanged() {
       void card.offsetWidth;
       card.classList.add("flash");
     });
-  }
+  });
 }
 
 function ensureGrid() {
@@ -477,8 +473,12 @@ function ensureGrid() {
     getRowId: ({data}) => data.ticker,
     onSelectionChanged,
   });
-  applyColumnVisibility();
-  buildColumnChooser();
+  gridPrefs = GridPrefs.create({
+    gridApi, columnDefs: COLUMN_DEFS, hiddenKey: "pe-hidden-cols",
+    locked: ["ticker"],
+    chooserBtn: document.getElementById("col-chooser-btn"),
+    chooserMenu: document.getElementById("col-menu"),
+  });
 }
 
 async function loadSnapshot() {
@@ -492,19 +492,68 @@ async function loadSnapshot() {
 }
 
 let currentRange = "all";
+let customStart = "";
+let customEnd = "";
 
-function setRange(range) {
-  if (range === currentRange) return;
-  currentRange = range;
-  document.querySelectorAll(".range-btn").forEach(btn => {
-    btn.classList.toggle("active", btn.dataset.range === range);
-  });
-  for (const t of visibleCharts) loadChart(t);
+// The chart query is either a preset range or an explicit start/end window.
+// Setting either date switches to custom mode; clicking a preset clears the dates.
+function historyQuery() {
+  if (customStart || customEnd) {
+    const p = new URLSearchParams();
+    if (customStart) p.set("start", customStart);
+    if (customEnd) p.set("end", customEnd);
+    return p.toString();
+  }
+  return `range=${currentRange}`;
 }
 
-async function loadChart(ticker) {
-  const res = await fetch(`{{ api_base }}/history/${ticker}?range=${currentRange}`);
-  const rows = await res.json();
+function setActiveRangeBtn(range) {
+  document.querySelectorAll(".range-btn").forEach(btn =>
+    btn.classList.toggle("active", btn.dataset.range === range));
+}
+
+function setRange(range) {
+  if (range === currentRange && !customStart && !customEnd) return;
+  currentRange = range;
+  customStart = customEnd = "";
+  document.getElementById("start-date").value = "";
+  document.getElementById("end-date").value = "";
+  setActiveRangeBtn(range);
+  historyRows.clear();
+  renderCharts();
+}
+
+function onDateChange() {
+  const s = document.getElementById("start-date").value;
+  const e = document.getElementById("end-date").value;
+  if (s && e && s > e) return;  // wait for a valid order before querying
+  customStart = s;
+  customEnd = e;
+  setActiveRangeBtn(s || e ? null : currentRange);  // custom mode hides preset highlight
+  historyRows.clear();
+  renderCharts();
+}
+
+// Bumped on every render trigger; a fetch whose seq is stale is dropped so a
+// slow earlier response can't populate the cache or render after a newer one.
+let renderSeq = 0;
+async function renderCharts() {
+  const seq = ++renderSeq;
+  await Promise.all([...visibleCharts].map(async t => {
+    if (historyRows.has(t)) return;
+    const res = await fetch(`{{ api_base }}/history/${t}?${historyQuery()}`);
+    const rows = await res.json();
+    if (seq !== renderSeq) return;   // superseded — drop stale response
+    historyRows.set(t, rows);
+  }));
+  if (seq !== renderSeq) return;     // superseded — don't render stale data
+  let [xMin, xMax] = timeExtent();
+  if (xMin === xMax) { xMin -= 864e5; xMax += 864e5; }  // pad a single-point extent
+  for (const t of visibleCharts) renderChart(t, xMin, xMax);
+}
+
+function renderChart(ticker, xMin, xMax) {
+  const rows = historyRows.get(ticker) || [];
   const peContainer = document.getElementById(`container-${ticker}`);
   const volContainer = document.getElementById(`vol-container-${ticker}`);
   const latestEl = document.getElementById(`latest-${ticker}`);
@@ -528,33 +577,62 @@ async function loadChart(ticker) {
   const peCtx = document.getElementById(`chart-${ticker}`);
   const volCtx = document.getElementById(`chart-vol-${ticker}`);
 
-  const labels = rows.map(r => r.date);
+  // Each line plots {x: epoch-ms, y} from this ticker's own rows; a null y is a
+  // genuine gap (loss / undefined / pre-coverage) and spanGaps:false breaks it.
+  // No union/alignment needed — Chart.js positions each point by its real date.
+  const pts = field => rows.map(r => ({x: Date.parse(r.date), y: r[field] ?? null}));
+  // Markers only on real anchors: interpolated rows get radius 0.
+  const flagRadius = (flag, on) => rows.map(r => (r[flag] ? 0 : on));
+
+  // Loss bands: contiguous spans where a line is undefined (no meaningful P/E),
+  // tinted to match it. Sub-3-week gaps are dropped as interpolation noise.
+  // TTM: a null P/E anywhere we have trailing EPS (the loss can reach the chart
+  // edges). Forward/IBES: a null *between* real points — within coverage the
+  // interpolated line only breaks on a forecast loss. Bands meet the real points.
+  const MIN_BAND_MS = 20 * 864e5;
+  const lossRuns = pred => {
+    const out = []; let s = null;
+    rows.forEach((r, i) => {
+      if (pred(r, i)) { if (s === null) s = i; }
+      else if (s !== null) { out.push([s, i - 1]); s = null; }
+    });
+    if (s !== null) out.push([s, rows.length - 1]);
+    return out.map(([a, b]) => ({from: Date.parse(rows[Math.max(a - 1, 0)].date),
+                                 to: Date.parse(rows[Math.min(b + 1, rows.length - 1)].date)}))
+              .filter(b => b.to - b.from >= MIN_BAND_MS);
+  };
+  const lossOf = (coverField, gapField, inner) => {
+    const cov = rows.map(r => r[coverField] != null);
+    const lo = cov.indexOf(true), hi = cov.lastIndexOf(true), e = inner ? 1 : 0;
+    return lo === -1 ? [] : lossRuns((r, i) => i >= lo + e && i <= hi - e && r[gapField] == null);
+  };
+  const tint = (runs, c) => runs.map(b => ({...b, color: c}));
+  const lossBandList = [
+    ...tint(lossOf("trailing_eps", "ttm_pe", false), "rgba(13,110,253,0.12)"),  // TTM loss
+    ...tint(lossRuns(r => r.forward_pe_loss), "rgba(220,53,69,0.12)"),           // fwd loss
+    ...tint(lossRuns(r => r.forward_pe_ibes_loss), "rgba(25,135,84,0.12)"),      // IBES loss
+  ];
+
   const pinWidth = axis => { axis.width = Y_AXIS_WIDTH; };
-  const lineStyle = {tension: 0.2, spanGaps: true, borderWidth: 1.5, pointRadius: 1.5, pointHoverRadius: 4};
-
-  // Forward P/E rows between Wayback anchors are server-side interpolated
-  // from implied EPS + daily price. We hide point markers on interpolated
-  // segments so real anchors stand out as dots; the line itself stays
-  // continuous so the trend reads cleanly.
-  const fwdPeInterpRadius = rows.map(r => r.forward_pe_interpolated ? 0 : 1.5);
-  const fwdPeInterpHover  = rows.map(r => r.forward_pe_interpolated ? 0 : 4);
-
-  // IBES forward P/E: monthly anchors (PRICE/MEANEST from IBES) interpolated
-  // to daily the same way. Markers only on real anchor months, so the IBES
-  // dots read as a sanity check against the yfinance line between them.
-  const ibesInterpRadius = rows.map(r => r.forward_pe_ibes_interpolated ? 0 : 2);
-  const ibesInterpHover  = rows.map(r => r.forward_pe_ibes_interpolated ? 0 : 4);
+  const lineStyle = {tension: 0.2, spanGaps: false, borderWidth: 1.5, pointRadius: 1.5, pointHoverRadius: 4};
+  // offset:false on both charts (bar defaults to true) so a date maps to the same
+  // pixel in the line and volume charts. pinX reserves the same right gutter on
+  // both — the volume axis pads for its last date label, the label-less P/E axis
+  // would otherwise run wider — so the bars line up under the lines.
+  const pinX = s => { s.paddingRight = 36; };
+  const xAxis = extra => ({type: "linear", offset: false, min: xMin, max: xMax,
+                           afterFit: pinX, ...extra});
+  const dateTitle = items => (items.length ? fmtDateAxis(items[0].parsed.x) : "");
 
   const peChart = new Chart(peCtx, {
     type: "line",
     data: {
-      labels,
       datasets: [
-        {label: "TTM P/E", data: rows.map(r => r.ttm_pe), borderColor: "#0d6efd", backgroundColor: "#0d6efd", ...lineStyle},
-        {label: "Forward P/E", data: rows.map(r => r.forward_pe), borderColor: "#dc3545", backgroundColor: "#dc3545", ...lineStyle,
-         pointRadius: fwdPeInterpRadius, pointHoverRadius: fwdPeInterpHover},
-        {label: "Forward P/E (IBES)", data: rows.map(r => r.forward_pe_ibes), borderColor: "#198754", backgroundColor: "#198754", ...lineStyle,
-         borderDash: [5, 3], pointRadius: ibesInterpRadius, pointHoverRadius: ibesInterpHover},
+        {label: "TTM P/E", data: pts("ttm_pe"), borderColor: "#0d6efd", backgroundColor: "#0d6efd", ...lineStyle},
+        {label: "Forward P/E", data: pts("forward_pe"), borderColor: "#dc3545", backgroundColor: "#dc3545", ...lineStyle,
+         pointRadius: flagRadius("forward_pe_interpolated", 1.5), pointHoverRadius: flagRadius("forward_pe_interpolated", 4)},
+        {label: "Forward P/E (IBES)", data: pts("forward_pe_ibes"), borderColor: "#198754", backgroundColor: "#198754", ...lineStyle,
+         borderDash: [5, 3], pointRadius: flagRadius("forward_pe_ibes_interpolated", 2), pointHoverRadius: flagRadius("forward_pe_ibes_interpolated", 4)},
       ],
     },
     options: {
@@ -563,19 +641,22 @@ async function loadChart(ticker) {
       interaction: {mode: "index", intersect: false},
       scales: {
         y: {beginAtZero: false, afterFit: pinWidth},
-        x: {ticks: {display: false}, grid: {display: false}},
+        x: xAxis({ticks: {display: false}, grid: {display: false}}),
       },
-      plugins: {cutoffLine: {date: FIRST_LIVE_DATE}},
+      plugins: {
+        lossBands: {bands: lossBandList},
+        tooltip: {callbacks: {title: dateTitle}},
+        cutoffLine: {date: FIRST_LIVE_DATE},
+      },
     },
   });
 
   const volChart = new Chart(volCtx, {
     type: "bar",
     data: {
-      labels,
       datasets: [{
         label: "Volume",
-        data: rows.map(r => r.volume),
+        data: pts("volume"),
         backgroundColor: "rgba(108, 117, 125, 0.55)",
         borderWidth: 0,
       }],
@@ -586,7 +667,7 @@ async function loadChart(ticker) {
       interaction: {mode: "index", intersect: false},
       plugins: {
         legend: {display: false},
-        tooltip: {callbacks: {label: c => `Volume: ${fmtVolume(c.parsed.y)}`}},
+        tooltip: {callbacks: {title: dateTitle, label: c => `Volume: ${fmtVolume(c.parsed.y)}`}},
         cutoffLine: {date: FIRST_LIVE_DATE},
       },
       scales: {
@@ -595,7 +676,8 @@ async function loadChart(ticker) {
           afterFit: pinWidth,
           ticks: {callback: fmtVolumeAxis, maxTicksLimit: 3},
         },
-        x: {ticks: {maxRotation: 0, autoSkip: true, maxTicksLimit: 8}},
+        x: xAxis({ticks: {callback: fmtDateTick, maxRotation: 0, autoSkip: false}, grid: {display: false},
+                  afterBuildTicks: s => { s.ticks = niceDateTicks(s.min, s.max); }}),
       },
     },
   });
@@ -610,7 +692,8 @@ async function refresh() {
   try {
     await fetch("{{ api_base }}/refresh", {method: "POST"});
     await loadSnapshot();
-    for (const t of visibleCharts) await loadChart(t);
+    historyRows.clear();
+    await renderCharts();
   } finally {
     btn.disabled = false;
     btn.textContent = "Refresh now";
@@ -676,8 +759,17 @@ function initPanelSplitter() {
   document.querySelectorAll(".range-btn").forEach(btn => {
     btn.addEventListener("click", () => setRange(btn.dataset.range));
   });
+  // Local Y-M-D, not toISOString() (UTC) — else "today" is unavailable during
+  // early local hours in positive-offset zones.
+  const now = new Date();
+  const pad = n => String(n).padStart(2, "0");
+  const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  for (const id of ["start-date", "end-date"]) {
+    const el = document.getElementById(id);
+    el.max = today;
+    el.addEventListener("change", onDateChange);
+  }
   initPanelSplitter();
-  initColumnChooser();
   updateHistoryPlaceholder();
   await loadSnapshot();
   // Re-fetch so a background crawl shows up without manual refresh; re-render

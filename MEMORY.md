@@ -2,16 +2,19 @@
 
 ## Active Status
 
-**Objective:** Gambler's Toolbox (GitHub `alex-lt-kong/gamblers-toolbox`) is a single
-FastAPI app (`core/`) that auto-discovers plugin modules under `modules/` behind one
-landing page, one port, and one shared auth layer. A review (see log) raised five bugs
-+ refactors; #1, #5, and the `_parse_iso_date` bug are now fixed.
+**Objective:** pe_monitor now handles money-losing companies correctly — forward-P/E
+lines (live red + IBES green) **break** across forecast-loss windows instead of
+bridging them or plotting a negative P/E. Done on branch `fix/pe-chart-gaps-and-ibes-neg`
+(cut off `feat/pe-chart-enhancements`). Key invariant: forward-P/E columns store the raw
+*signed* ratio; the "non-positive ⇒ undefined" rule lives at serve time
+(`_interpolate_series` for charts/delta, `_hide_nonpositive_pe` for the latest grid).
 
-**Immediate next steps (remaining review items):** bound AI-ratios Yahoo work with
-per-call network timeouts (executor deadline can't kill running threads); token-in-URL
-is by-design (shareable links) — only revisit if you want POST/Authorization; small
-refactors left: port/slug validation, scope `latest_per_ticker` to requested tickers,
-widen `ibes.*.csv` gitignore pattern to also catch `.csv.zip`.
+**Immediate next steps:** Open the PR — chart work is Playwright-verified (breaks, time axis,
+alignment, even ticks, loss bands) and the review findings are addressed (delta N/A on loss;
+custom-range right-anchor; zero-P/E guard). Still open: guard chart history against stale
+responses (transient wrong window on fast range-switching). Deferred to a follow-up PR:
+gap-aware downsampling (loss gaps can vanish at coarse zoom), the explicit-series-state
+refactor, and a Playwright/JS E2E test (covers the untested chart JS).
 
 - `core/` — host shell: `module.py` (interface), `registry.py` (discovery), `auth.py`
   (token→cookie gate), typed `config.py` (Pydantic `HostConfig`), `main.py`
@@ -36,8 +39,73 @@ ai_ratios JSON-snapshot persistence; an exempt `/healthz` endpoint.
   `--factory core.main:create_app`. Run schedulers on one instance only.
 - Refreshes are single-flight; ai_ratios keeps last-known-good below 95% coverage.
 - Tests: `pip install -r requirements-dev.txt && python -m pytest` (21 integration tests).
+- Live E2E (Playwright): `npm i playwright` in `~/pwtest` + `npx playwright install chromium`;
+  run `python3 -m core --config config.toml` on :9090 (token `demo-token-1234`, prod-copy DB).
+  Drive: select tickers via `gridApi.forEachNode(n => n.setSelected(true))`, click
+  `.range-btn[data-range=...]`, then read `chartInstances` scales (geometry/ticks) or
+  screenshot `#chart-card-<T>`. Jinja auto-reloads dashboard.html (no app restart needed).
+  npm registry reachable here; external UAT host is NOT (sandbox egress).
 
 ## Activity Log
+
+### 2026-06-23 — Forward-P/E money-losing handling (Design Y, branch `fix/pe-chart-gaps-and-ibes-neg`)
+- Problem: a company forecast to lose money has negative forward EPS ⇒ forward P/E is
+  undefined. Three write-sites stored a *negative* P/E (live `fetcher` via Yahoo
+  `forwardPE`; `import_wayback_fwdpe`; `import_ibes` PRICE/MEANEST) that plotted below
+  zero, and `_interpolate_series` *bridged* the loss gaps, faking a smooth trend.
+- Design Y — store signed, break at serve: forward-P/E columns keep the raw *signed* ratio
+  (negative = forecast loss); no source guards, no schema change. `_interpolate_series`
+  reworked in EPS-space — nulls loss anchors and never interpolates a span a loss bounds,
+  so the line breaks from last-profitable to next-profitable anchor (kills the near-zero
+  +∞ interpolation spike: MU max served 115.7 vs a 2887 spike). TTM stays nulled-at-source
+  (it isn't interpolated). `_hide_nonpositive_pe` enforces the rule on the latest grid.
+- Chart `dashboard.html`: a `segment.borderColor` callback breaks a line only at *genuine*
+  gaps (row present, value null) while still bridging *alignment* gaps (ticker lacks a union
+  date) — both are `null` and `spanGaps` bridged both before. NOTE: first impl had a dead
+  loop — Chart.js emits one segment per *adjacent* pair (p1DataIndex = p0DataIndex+1), so
+  scanning indices *between* the endpoints never fired and no line broke (caught visually on
+  UAT, not by tests). Fixed to test the segment's two endpoints against the genuine-gap mask.
+- An earlier "drop negatives at source + null the DB" attempt was reverted in favour of Y.
+  Verified: 33 tests pass (+`test_interpolate_breaks_across_forward_loss`); MU IBES breaks
+  Jul–Sep 2023; 0 negatives served across all 39 tickers; NIO → 98 positive fwd-P/E days.
+- Follow-up refactor (same branch): replaced the categorical *union-date* x-axis with a
+  shared **linear time axis** (x = epoch-ms). The union made per-ticker density distort time
+  — equal calendar spans rendered at unequal width (INTC 1986→ at 30d buckets vs ARM daily ⇒
+  recent years ~15× wider). This deletes `unionDates`/`alignRows`/`col`/`genuineGap`, so
+  `segmentBreak` is gone too — replaced by plain `spanGaps:false` (one ticker per chart ⇒
+  every null is a genuine gap). `cutoffLine` maps date→pixel via the scale.
+- Verified the axis math via **headless Chart.js** (node + stubbed canvas): line/bar data map
+  to exact axis pixels. Caught+fixed there: bar charts default `offset:true`, insetting the
+  volume bars to ~83% of the width while the lines use the full axis (looked like vol not
+  matching the lines / data "squished") — forced `offset:false` on both x-axes.
+- Stood up local **Playwright** E2E (headless Chromium + app on :9090). It caught what the
+  headless axis-math missed: the volume x-axis reserves a right gutter for its last date
+  label that the label-less P/E axis didn't → ~29px misalignment (pe_plot 1023 vs vol 994).
+  Fixed with `pinX` (afterFit `paddingRight=36`) on both → both `[58,992]`. Also added even
+  round-date ticks (`niceDateTicks` + `fmtDateTick`) and cleared the review findings (2 stale
+  comments, single-point-extent guard). All Playwright-verified (geometry, ticks, no errors).
+- **Loss shading** (`lossBandsPlugin`): a semi-transparent band tinted to each line over the
+  periods its P/E is undefined (a missing line otherwise reads as a glitch). TTM: client-side,
+  null P/E within trailing-EPS coverage (reaches edges; day-gaps in trailing-EPS don't
+  fragment it). Forward/IBES: a server loss flag `<col>_loss` from `_interpolate_series` — the
+  client can't tell a forecast-loss null from a no-data null at the *visible edge* (e.g. MU's
+  IBES loss starts before its first in-window positive anchor). Sub-3-week gaps dropped as
+  interp noise. Playwright-verified: INTC blue-only, MU blue+green, NIO blue+red+green.
+- Review findings fixed: delta `now` → N/A when the latest forward P/E is a loss (was a stale
+  pre-loss value); `_history_rows` reaches forward to the right anchor (new
+  `storage.earliest_value_date`) so a custom window inside a sparse gap interpolates instead
+  of rendering blank (verified on MU 2021-08: 0 → 5 values); a stored 0 P/E is nulled (was
+  plotting y:0). +3 tests (36 total). Deferred to a follow-up PR: gap-aware downsampling,
+  explicit-series-state refactor, Playwright/JS E2E.
+
+### 2026-06-23 — Review `feat/pe-chart-enhancements`
+- Compared the fetched feature ref against `origin/main` (3 commits; 4 files).
+- Found overlapping history requests can populate/render the cache with an obsolete
+  range after the user has selected a newer range.
+- Found history is clipped to a custom start before interpolation, so a window starting
+  inside a sparse forward-P/E gap loses values until the next in-window anchor.
+- Refactoring opportunities: share the duplicated column chooser and replace the
+  categorical union-date axis with a true time axis.
 
 ### 2026-06-22 — Review fixes on `feat/delta-fwd-pe` (sort, config hardening, delta perf)
 - Reviewed the whole project; fixed four items, each its own commit:
@@ -83,24 +151,5 @@ ai_ratios JSON-snapshot persistence; an exempt `/healthz` endpoint.
 - #2: pinned requirements to the tested set (compatible-release `~=`), incl. starlette.
   Stayed on `httpx` for TestClient (the deprecation points at an unverified `httpx2`
   package — sandbox flagged it as supply-chain risk); silenced the warning in `pytest.ini`.
-
-### 2026-06-22 — Review unified FastAPI branch
-- Reviewed the complete `main...origin/feat/unified-fastapi-landing` diff; the
-  19-test suite hangs on its first request with the currently resolved unbounded
-  FastAPI/Starlette/httpx dependency set.
-- Found scheduler-disabled replicas skip P/E database initialization/migrations;
-  global scheduler ownership makes app lifespans non-reentrant.
-- Found AI-ratios timeout leaves running worker threads behind and URL query-token
-  authentication exposes bearer secrets to normal request logging.
-- Noted strict config/date validation and stale module-example docs as cleanup work.
-
-### 2026-06-22 — Rename project to Gambler's Toolbox
-- Renamed branding to **Gambler's Toolbox** / slug `gamblers-toolbox`: FastAPI title,
-  landing page, manifest, icon, README, config comments, log banner prefix.
-- Renamed env vars `MARKET_UTILS_CONFIG`→`GAMBLERS_TOOLBOX_CONFIG`,
-  `MARKET_UTILS_LOG_SECRETS`→`GAMBLERS_TOOLBOX_LOG_SECRETS` (breaking for external
-  launchers; update systemd/launch scripts). Tests updated to match.
-- GitHub repo renamed `market-monitors`→`gamblers-toolbox`; updated the `origin` URL.
-- Left the local working dir name and a stale notebook path string as-is.
 
 _(Older entries moved to `MEMORY_ARCHIVE.md`.)_
