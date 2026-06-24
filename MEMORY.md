@@ -6,8 +6,10 @@
 `feat/bloomberg-terminal-theme` (off `main`, which now includes the merged Pyramiding Calculator,
 PR #11). Shared `core/static/terminal.css` (black/amber/green-red, IBM Plex Mono bundled locally)
 themes all pages; ag-grid + Chart.js recoloured, and charts are now Bloomberg *GP*-style (price
-axis on the **right** + colored last-value tags; crosshair declined). 76 tests + Playwright pass;
-committed locally, not pushed.
+axis on the **right** + colored last-value tags; crosshair declined). Struck legend series and the
+selected time range now persist (localStorage). 76 tests + Playwright pass; **pushed** to
+`origin/feat/bloomberg-terminal-theme` (theme/charts), PR not opened. The two persistence tweaks
+are committed locally on top — push when ready.
 
 **Objective:** pe_monitor now handles money-losing companies correctly — forward-P/E
 lines (live red + IBES green) **break** across forecast-loss windows instead of
@@ -70,6 +72,10 @@ ai_ratios JSON-snapshot persistence; an exempt `/healthz` endpoint.
   `pinX` now padding *both* ends — moving y off the left un-pinned it), plus a `lastValueTagPlugin`
   drawing a colored latest-value chip per line over the right axis (vertically dodged when close).
   Crosshair declined by user. e2e alignment test still green.
+- Follow-up UI tweaks (same branch): the struck legend series and the selected time range now
+  persist via localStorage (`pe-hidden-series`, `pe-range`) — a hidden line survives a range/
+  ticker rebuild instead of resurrecting (it was rebuilt fresh each `renderChart`), and the page
+  reopens on the last-selected range, not "All". Playwright-verified.
 - Font: bundled **IBM Plex Mono** locally (OFL, `core/static/fonts/*.woff2`, no CDN) as `--mono`
   + ag-grid `fontFamily` + `Chart.defaults.font.family`. Closest free face to the Terminal's
   institutional monospace (VT323/Share Tech Mono compared, rejected). Emoji fallbacks appended;

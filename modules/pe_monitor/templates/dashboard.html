@@ -346,6 +346,10 @@ Chart.register(lastValueTagPlugin);
 
 let gridApi;
 const visibleCharts = new Set();
+// Series the user struck via the legend; persisted so a range/ticker change
+// (which rebuilds the charts) doesn't resurrect a hidden line.
+const hiddenSeries = new Set(JSON.parse(localStorage.getItem("pe-hidden-series") || "[]"));
+function saveHidden() { localStorage.setItem("pe-hidden-series", JSON.stringify([...hiddenSeries])); }
 const chartInstances = new Map();
 const historyRows = new Map();   // ticker -> fetched rows for the current range
 
@@ -538,6 +542,28 @@ let currentRange = "all";
 let customStart = "";
 let customEnd = "";
 
+// Remember the selected period (preset range or custom window) across reloads.
+const PERIOD_KEY = "pe-range";
+function savePeriod() {
+  localStorage.setItem(PERIOD_KEY, JSON.stringify({range: currentRange, start: customStart, end: customEnd}));
+}
+function restorePeriod() {
+  let saved;
+  try { saved = JSON.parse(localStorage.getItem(PERIOD_KEY)); } catch { saved = null; }
+  if (!saved) return;
+  if (saved.start || saved.end) {
+    customStart = saved.start || "";
+    customEnd = saved.end || "";
+    const sd = document.getElementById("start-date"), ed = document.getElementById("end-date");
+    if (sd) sd.value = customStart;
+    if (ed) ed.value = customEnd;
+    setActiveRangeBtn(null);
+  } else if (saved.range && document.querySelector(`.range-btn[data-range="${saved.range}"]`)) {
+    currentRange = saved.range;
+    setActiveRangeBtn(saved.range);
+  }
+}
+
 // The chart query is either a preset range or an explicit start/end window.
 // Setting either date switches to custom mode; clicking a preset clears the dates.
 function historyQuery() {
@@ -562,6 +588,7 @@ function setRange(range) {
   document.getElementById("start-date").value = "";
   document.getElementById("end-date").value = "";
   setActiveRangeBtn(range);
+  savePeriod();
   historyRows.clear();
   renderCharts();
 }
@@ -573,6 +600,7 @@ function onDateChange() {
   customStart = s;
   customEnd = e;
   setActiveRangeBtn(s || e ? null : currentRange);  // custom mode hides preset highlight
+  savePeriod();
   historyRows.clear();
   renderCharts();
 }
@@ -674,10 +702,10 @@ function renderChart(ticker, xMin, xMax) {
     type: "line",
     data: {
       datasets: [
-        {label: "TTM P/E", data: pts("ttm_pe"), borderColor: "#ff9e1b", backgroundColor: "#ff9e1b", ...lineStyle},
-        {label: "Forward P/E", data: pts("forward_pe"), borderColor: "#ff5252", backgroundColor: "#ff5252", ...lineStyle,
+        {label: "TTM P/E", data: pts("ttm_pe"), borderColor: "#ff9e1b", backgroundColor: "#ff9e1b", hidden: hiddenSeries.has("TTM P/E"), ...lineStyle},
+        {label: "Forward P/E", data: pts("forward_pe"), borderColor: "#ff5252", backgroundColor: "#ff5252", hidden: hiddenSeries.has("Forward P/E"), ...lineStyle,
          pointRadius: flagRadius("forward_pe_interpolated", 1.5), pointHoverRadius: flagRadius("forward_pe_interpolated", 4)},
-        {label: "Forward P/E (IBES)", data: pts("forward_pe_ibes"), borderColor: "#2ecc71", backgroundColor: "#2ecc71", ...lineStyle,
+        {label: "Forward P/E (IBES)", data: pts("forward_pe_ibes"), borderColor: "#2ecc71", backgroundColor: "#2ecc71", hidden: hiddenSeries.has("Forward P/E (IBES)"), ...lineStyle,
          borderDash: [5, 3], pointRadius: flagRadius("forward_pe_ibes_interpolated", 2), pointHoverRadius: flagRadius("forward_pe_ibes_interpolated", 4)},
       ],
     },
@@ -690,6 +718,13 @@ function renderChart(ticker, xMin, xMax) {
         x: xAxis({ticks: {display: false}, grid: {display: false}}),
       },
       plugins: {
+        legend: {onClick(e, item, legend) {
+          const ci = legend.chart, vis = ci.isDatasetVisible(item.datasetIndex);
+          ci.setDatasetVisibility(item.datasetIndex, !vis);
+          if (vis) hiddenSeries.add(item.text); else hiddenSeries.delete(item.text);
+          saveHidden();
+          ci.update();
+        }},
         lossBands: {bands: lossBandList},
         tooltip: {callbacks: {title: dateTitle}},
         cutoffLine: {date: FIRST_LIVE_DATE},
@@ -816,6 +851,7 @@ function initPanelSplitter() {
     el.max = today;
     el.addEventListener("change", onDateChange);
   }
+  restorePeriod();
   initPanelSplitter();
   updateHistoryPlaceholder();
   await loadSnapshot();
