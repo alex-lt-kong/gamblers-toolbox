@@ -79,6 +79,17 @@ def test_finite_inputs_overflowing_result_rejected():
         calc.evaluate(qty=1e300, avg_cost=1e-200, mkt_px=1e200, target_pct=1e-200)
 
 
+@pytest.mark.parametrize("args", [
+    dict(qty=100, avg_cost=1e-308, mkt_px=1e10),                # current% overflows, current-only
+    dict(qty=100, avg_cost=1e-308, mkt_px=1e10, target_pct=10),  # current% overflows, plan still finite
+    dict(qty=1e308, avg_cost=1.0, mkt_px=10.0),                 # pnl_amount overflows, current% finite
+])
+def test_overflowing_readout_rejected(args):
+    # Derived readout (current_pnl_pct / pnl_amount) must not leak inf into the JSON.
+    with pytest.raises(ValueError):
+        calc.evaluate(**args)
+
+
 # --- API surface ---
 
 def test_api_calc_ok(make_app):
@@ -106,6 +117,7 @@ def test_api_current_only_without_target(make_app):
     {"qty": 100, "avg_cost": 100, "mkt_px": "inf", "target_pct": 15},
     {"qty": 100, "avg_cost": 100, "mkt_px": 120, "target_pct": "nan"},
     {"qty": 0, "avg_cost": 100, "mkt_px": 120, "target_pct": 15},
+    {"qty": 100, "avg_cost": "1e-308", "mkt_px": "1e10"},  # readout overflows to inf, no target
 ])
 def test_api_rejects_bad_inputs_with_400_not_500(make_app, params):
     r = TestClient(make_app()).get("/averaging-calc/api/calc", params=params)

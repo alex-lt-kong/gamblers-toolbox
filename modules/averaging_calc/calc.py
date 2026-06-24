@@ -21,6 +21,11 @@ def _require_finite_positive(**vals: float) -> None:
             raise ValueError(f"{name} must be positive")
 
 
+def _require_finite_result(*vals: float) -> None:
+    if not all(math.isfinite(v) for v in vals):
+        raise ValueError("inputs are too large; the result is not a finite number")
+
+
 def _strictly_between_zero_and(target: float, current: float) -> bool:
     if current == 0 or target == 0:
         return False
@@ -43,8 +48,7 @@ def shares_to_target(qty: float, avg_cost: float, mkt_px: float, target_frac: fl
 
 def _plan(qty: float, avg_cost: float, mkt_px: float, target_frac: float) -> dict:
     add = shares_to_target(qty, avg_cost, mkt_px, target_frac)
-    if not math.isfinite(add):  # guard before math.ceil, which raises on inf
-        raise ValueError("inputs are too large; the result is not a finite number")
+    _require_finite_result(add)  # before math.ceil, which raises OverflowError on inf
     new_avg = (qty * avg_cost + add * mkt_px) / (qty + add)
     whole = math.ceil(add)
     whole_avg = (qty * avg_cost + whole * mkt_px) / (qty + whole)
@@ -57,8 +61,7 @@ def _plan(qty: float, avg_cost: float, mkt_px: float, target_frac: float) -> dic
         "shares_to_buy_whole": whole,
         "whole_new_pnl_pct": (mkt_px / whole_avg - 1.0) * 100.0,
     }
-    if not all(math.isfinite(v) for v in plan.values()):
-        raise ValueError("inputs are too large; the result is not a finite number")
+    _require_finite_result(*plan.values())
     return plan
 
 
@@ -66,9 +69,11 @@ def evaluate(qty: float, avg_cost: float, mkt_px: float, target_pct: float | Non
     """Position readout, plus the buy plan when a reachable target is given."""
     _require_finite_positive(qty=qty, avg_cost=avg_cost, mkt_px=mkt_px)
     current_pct = (mkt_px / avg_cost - 1.0) * 100.0
+    pnl_amount = qty * (mkt_px - avg_cost)
+    _require_finite_result(current_pct, pnl_amount)  # extreme finite inputs can overflow
     result = {
         "current_pnl_pct": current_pct,
-        "pnl_amount": qty * (mkt_px - avg_cost),
+        "pnl_amount": pnl_amount,
         "reachable_low_pct": min(0.0, current_pct),
         "reachable_high_pct": max(0.0, current_pct),
         "target_pct": target_pct,
