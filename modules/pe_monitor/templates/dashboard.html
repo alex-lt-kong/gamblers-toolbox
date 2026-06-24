@@ -341,16 +341,20 @@ const lastValueTagPlugin = {
     });
     chart.$valueTagLabels = tags.map(t => t.label);  // exposed for the e2e regression test
     if (!tags.length) return;
-    const H = 15;
+    const H = 15, lo = chartArea.top + H / 2, hi = chartArea.bottom - H / 2;
     tags.sort((a, b) => a.y - b.y);
-    for (let i = 1; i < tags.length; i++)
+    for (let i = 1; i < tags.length; i++)              // space down so neighbours clear H
       if (tags[i].y - tags[i - 1].y < H) tags[i].y = tags[i - 1].y + H;
+    for (let i = tags.length - 1; i > 0; i--) {        // bounce a bottom-overflowing stack back up
+      if (tags[i].y > hi) tags[i].y = hi;
+      if (tags[i].y - tags[i - 1].y < H) tags[i - 1].y = tags[i].y - H;
+    }
     ctx.save();
     ctx.font = "700 11px 'IBM Plex Mono', monospace";
     ctx.textBaseline = "middle";
     for (const t of tags) {
       const w = ctx.measureText(t.text).width + 8;
-      const cy = Math.max(chartArea.top + H / 2, Math.min(chartArea.bottom - H / 2, t.y));
+      const cy = Math.max(lo, Math.min(hi, t.y));
       ctx.fillStyle = t.color;
       ctx.fillRect(chartArea.right + 1, cy - H / 2, w, H);
       ctx.fillStyle = "#000";
@@ -375,17 +379,26 @@ const PE_SERIES = [
   {label: "Forward P/E", color: "#ff5252"},
   {label: "Forward P/E (IBES)", color: "#2ecc71"},
 ];
+// Accessible toggle chip — focusable, keyboard-operable, announced as a pressed
+// button. `on` = the series/panel it controls is currently shown.
+function makeChip(text, on, onToggle, swatch = "") {
+  const chip = document.createElement("span");
+  chip.className = "series-chip" + (on ? "" : " off");
+  chip.setAttribute("role", "button");
+  chip.tabIndex = 0;
+  chip.setAttribute("aria-pressed", on);
+  chip.innerHTML = swatch + text;
+  chip.onclick = onToggle;
+  chip.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onToggle(); } };
+  return chip;
+}
 function renderSeriesLegend() {
   const el = document.getElementById("series-legend");
   if (!el) return;
   el.innerHTML = "";
-  for (const s of PE_SERIES) {
-    const chip = document.createElement("span");
-    chip.className = "series-chip" + (hiddenSeries.has(s.label) ? " off" : "");
-    chip.innerHTML = `<span class="swatch" style="background:${s.color}"></span>${s.label}`;
-    chip.onclick = () => toggleSeries(s.label);
-    el.appendChild(chip);
-  }
+  for (const s of PE_SERIES)
+    el.appendChild(makeChip(s.label, !hiddenSeries.has(s.label), () => toggleSeries(s.label),
+                            `<span class="swatch" style="background:${s.color}"></span>`));
 }
 function toggleSeries(label) {
   if (hiddenSeries.has(label)) hiddenSeries.delete(label); else hiddenSeries.add(label);
@@ -405,24 +418,22 @@ function applyPanelVisibility() {
   const sec = document.querySelector("section.charts");
   if (sec) for (const p of PANELS) sec.classList.toggle(`hide-${p.key}`, hiddenPanels.has(p.key));
 }
+function bottomVisiblePanel() {   // the only panel showing date labels: bottom-most visible
+  return ["vol", "pe", "price"].find(k => !hiddenPanels.has(k)) || null;
+}
 function renderPanelToggle() {
   const el = document.getElementById("panel-toggle");
   if (!el) return;
   el.innerHTML = '<span class="lbl">Panels</span>';
-  for (const p of PANELS) {
-    const chip = document.createElement("span");
-    chip.className = "series-chip" + (hiddenPanels.has(p.key) ? " off" : "");
-    chip.textContent = p.label;
-    chip.onclick = () => togglePanel(p.key);
-    el.appendChild(chip);
-  }
+  for (const p of PANELS)
+    el.appendChild(makeChip(p.label, !hiddenPanels.has(p.key), () => togglePanel(p.key)));
 }
 function togglePanel(key) {
   if (hiddenPanels.has(key)) hiddenPanels.delete(key); else hiddenPanels.add(key);
   localStorage.setItem("pe-hidden-panels", JSON.stringify([...hiddenPanels]));
   applyPanelVisibility();
   renderPanelToggle();
-  reflowCharts();   // a panel revealed from display:none built at 0px; resize fixes it
+  redrawCharts();   // rebuild so the bottom-most visible panel owns the date axis
 }
 const chartInstances = new Map();
 const historyRows = new Map();   // ticker -> fetched rows for the current range
@@ -693,6 +704,10 @@ async function renderCharts() {
     historyRows.set(t, rows);
   }));
   if (seq !== renderSeq) return;     // superseded — don't render stale data
+  redrawCharts();
+}
+
+function redrawCharts() {
   let [xMin, xMax] = timeExtent();
   if (xMin === xMax) { xMin -= 864e5; xMax += 864e5; }  // pad a single-point extent
   for (const t of visibleCharts) renderChart(t, xMin, xMax);
@@ -765,17 +780,18 @@ function renderChart(ticker, xMin, xMax) {
 
   const pinWidth = axis => { axis.width = Y_AXIS_WIDTH; };
   const lineStyle = {tension: 0.2, spanGaps: false, borderWidth: 1.5, pointRadius: 1.5, pointHoverRadius: 4};
-  // offset:false on both charts (bar defaults to true) so a date maps to the same
-  // pixel in the line and volume charts. pinX reserves the same right gutter on
-  // both — the volume axis pads for its last date label, the label-less P/E axis
-  // would otherwise run wider — so the bars line up under the lines.
-  // Pad both x-axis ends equally so the labelled volume axis and the label-less
-  // P/E axis share identical plot bounds (y-axis now sits on the right, so it no
-  // longer pins the left edge for us).
+  // offset:false on every chart (bar defaults to true) so a date maps to the same
+  // pixel across the stacked panels. pinX pads both x-ends equally so the panel that
+  // shows date labels and the label-less ones share identical plot bounds and line up.
   const pinX = s => { s.paddingLeft = 36; s.paddingRight = 36; };
   const xAxis = extra => ({type: "linear", offset: false, min: xMin, max: xMax,
                            afterFit: pinX, ...extra});
   const dateTitle = items => (items.length ? fmtDateAxis(items[0].parsed.x) : "");
+  // Date labels live on the bottom-most VISIBLE panel only (price/P/E hide ticks to
+  // save height); `bottom` is recomputed each render so hiding Volume re-homes them.
+  const bottom = bottomVisiblePanel();
+  const dateX = key => xAxis({ticks: {display: key === bottom, callback: fmtDateTick, maxRotation: 0, autoSkip: false},
+                              grid: {display: false}, afterBuildTicks: s => { s.ticks = niceDateTicks(s.min, s.max); }});
 
   // Price rides the same pinned date axis above P/E (P/E = price/EPS, so price
   // diverging from TTM P/E flags an EPS revision). Log y: equal % == equal height.
@@ -791,7 +807,7 @@ function renderChart(ticker, xMin, xMax) {
       interaction: {mode: "index", intersect: false},
       scales: {
         y: {type: "logarithmic", position: "right", afterFit: pinWidth, ticks: {callback: fmtPriceAxis, maxTicksLimit: 4}},
-        x: xAxis({ticks: {display: false}, grid: {display: false}}),
+        x: dateX("price"),
       },
       plugins: {
         legend: {display: false},
@@ -818,7 +834,7 @@ function renderChart(ticker, xMin, xMax) {
       interaction: {mode: "index", intersect: false},
       scales: {
         y: {beginAtZero: false, position: "right", afterFit: pinWidth},
-        x: xAxis({ticks: {display: false}, grid: {display: false}}),
+        x: dateX("pe"),
       },
       plugins: {
         legend: {display: false},   // replaced by the shared #series-legend
@@ -855,8 +871,7 @@ function renderChart(ticker, xMin, xMax) {
           afterFit: pinWidth,
           ticks: {callback: fmtVolumeAxis, maxTicksLimit: 3},
         },
-        x: xAxis({ticks: {callback: fmtDateTick, maxRotation: 0, autoSkip: false}, grid: {display: false},
-                  afterBuildTicks: s => { s.ticks = niceDateTicks(s.min, s.max); }}),
+        x: dateX("vol"),
       },
     },
   });
