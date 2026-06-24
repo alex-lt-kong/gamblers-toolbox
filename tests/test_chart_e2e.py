@@ -107,15 +107,17 @@ def test_chart_aligns_and_shades_losses(live_server):
         # than a fixed sleep, so a slow CI fetch/render can't make this read too early.
         page.wait_for_function(
             "() => typeof chartInstances !== 'undefined' && chartInstances.size === 2"
-            " && [...chartInstances.values()].every(i => i.pe && i.vol"
+            " && [...chartInstances.values()].every(i => i.price && i.pe && i.vol"
+            "      && i.price.scales.x.right > i.price.scales.x.left"
             "      && i.pe.scales.x.right > i.pe.scales.x.left"
             "      && i.vol.scales.x.right > i.vol.scales.x.left)",
             timeout=15000)
         diag = page.evaluate("""() => {
           const o = {};
           for (const [t, inst] of chartInstances) {
-            const x = inst.pe.scales.x, vx = inst.vol.scales.x;
-            o[t] = {pe: [Math.round(x.left), Math.round(x.right)],
+            const x = inst.pe.scales.x, vx = inst.vol.scales.x, px = inst.price.scales.x;
+            o[t] = {price: [Math.round(px.left), Math.round(px.right)],
+                    pe: [Math.round(x.left), Math.round(x.right)],
                     vol: [Math.round(vx.left), Math.round(vx.right)],
                     bands: inst.pe.options.plugins.lossBands.bands.length};
           }
@@ -126,9 +128,10 @@ def test_chart_aligns_and_shades_losses(live_server):
         pw.stop()
 
     assert set(diag) == {"AAA", "BBB"}, diag
-    # volume bars must share the line chart's plot area (the alignment bug)
+    # price, P/E and volume panels must share one plot area (the alignment bug)
     for t in ("AAA", "BBB"):
         assert diag[t]["pe"] == diag[t]["vol"], f"{t}: volume x-axis misaligned with lines"
+        assert diag[t]["price"] == diag[t]["pe"], f"{t}: price x-axis misaligned with lines"
     # loss shading: present for the loss-maker, absent for the clean name
     assert diag["AAA"]["bands"] >= 1, "loss-making ticker should be shaded"
     assert diag["BBB"]["bands"] == 0, "always-profitable ticker should have no shading"

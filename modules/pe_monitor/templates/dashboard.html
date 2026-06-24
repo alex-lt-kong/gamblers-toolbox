@@ -84,6 +84,7 @@ section.summary h2,section.charts h2{
 .latest{color:var(--muted);font-size:.82rem;font-weight:normal;font-variant-numeric:tabular-nums}
 .empty{color:#adb5bd;font-size:.85rem;padding:2rem 0;text-align:center}
 .canvas-wrap{position:relative}
+.canvas-wrap.price-wrap{height:110px}
 .canvas-wrap.pe-wrap{height:240px}
 .canvas-wrap.vol-wrap{height:75px}
 canvas{width:100%!important;height:100%!important}
@@ -200,6 +201,7 @@ canvas{width:100%!important;height:100%!important}
   {% for t in tickers %}
   <div class="chart-card" id="chart-card-{{ t }}" style="display:none">
     <h3><code>{{ t }}</code><span class="latest" id="latest-{{ t }}"></span></h3>
+    <div class="canvas-wrap price-wrap" id="price-container-{{ t }}"><canvas id="chart-price-{{ t }}"></canvas></div>
     <div class="canvas-wrap pe-wrap" id="container-{{ t }}"><canvas id="chart-{{ t }}"></canvas></div>
     <div class="canvas-wrap vol-wrap" id="vol-container-{{ t }}"><canvas id="chart-vol-{{ t }}"></canvas></div>
   </div>
@@ -323,14 +325,17 @@ const lastValueTagPlugin = {
     const yScale = scales.y;
     const tags = [];
     chart.data.datasets.forEach((ds, i) => {
-      if (chart.getDatasetMeta(i).hidden) return;
-      let v = null;
-      for (let k = ds.data.length - 1; k >= 0; k--) {
-        const p = ds.data[k], yv = (p && typeof p === "object") ? p.y : p;
-        if (yv != null && Number.isFinite(yv)) { v = yv; break; }
-      }
-      if (v != null) tags.push({y: yScale.getPixelForValue(v), color: ds.borderColor, text: v.toFixed(2)});
+      // isDatasetVisible — not meta.hidden, which is null on a freshly built chart,
+      // so a persisted hidden:true series draws no ghost tag after a rebuild.
+      if (!chart.isDatasetVisible(i)) return;
+      // Latest point only: scanning back over a terminal loss/gap would pin a stale
+      // pre-loss value to the axis as if it were the current P/E.
+      const last = ds.data[ds.data.length - 1];
+      const yv = (last && typeof last === "object") ? last.y : last;
+      if (yv == null || !Number.isFinite(yv)) return;
+      tags.push({y: yScale.getPixelForValue(yv), color: ds.borderColor, text: yv.toFixed(2), label: ds.label});
     });
+    chart.$valueTagLabels = tags.map(t => t.label);  // exposed for the e2e regression test
     if (!tags.length) return;
     const H = 15;
     tags.sort((a, b) => a.y - b.y);
@@ -492,6 +497,7 @@ function updateHistoryPlaceholder() {
 function destroyCharts(ticker) {
   const inst = chartInstances.get(ticker);
   if (!inst) return;
+  inst.price?.destroy();
   inst.pe?.destroy();
   inst.vol?.destroy();
   chartInstances.delete(ticker);
@@ -662,6 +668,7 @@ async function renderCharts() {
 
 function renderChart(ticker, xMin, xMax) {
   const rows = historyRows.get(ticker) || [];
+  const priceContainer = document.getElementById(`price-container-${ticker}`);
   const peContainer = document.getElementById(`container-${ticker}`);
   const volContainer = document.getElementById(`vol-container-${ticker}`);
   const latestEl = document.getElementById(`latest-${ticker}`);
@@ -670,6 +677,7 @@ function renderChart(ticker, xMin, xMax) {
 
   if (!rows.length) {
     peContainer.innerHTML = '<div class="empty">No data yet — first snapshot will appear after the next crawl.</div>';
+    priceContainer.innerHTML = "";
     volContainer.innerHTML = "";
     latestEl.textContent = "";
     return;
@@ -680,8 +688,10 @@ function renderChart(ticker, xMin, xMax) {
     `TTM ${fmt(last.ttm_pe)} · Fwd ${fmt(last.forward_pe)} · ` +
     `Vol ${fmtVolume(last.volume)} · ${last.date}`;
 
+  priceContainer.innerHTML = `<canvas id="chart-price-${ticker}"></canvas>`;
   peContainer.innerHTML = `<canvas id="chart-${ticker}"></canvas>`;
   volContainer.innerHTML = `<canvas id="chart-vol-${ticker}"></canvas>`;
+  const priceCtx = document.getElementById(`chart-price-${ticker}`);
   const peCtx = document.getElementById(`chart-${ticker}`);
   const volCtx = document.getElementById(`chart-vol-${ticker}`);
 
@@ -734,6 +744,30 @@ function renderChart(ticker, xMin, xMax) {
   const xAxis = extra => ({type: "linear", offset: false, min: xMin, max: xMax,
                            afterFit: pinX, ...extra});
   const dateTitle = items => (items.length ? fmtDateAxis(items[0].parsed.x) : "");
+
+  // Price rides the same pinned date axis above P/E. Since P/E = price / EPS,
+  // the price line diverging from TTM P/E is the visual tell of an EPS revision.
+  const fmtPriceAxis = v => v >= 1000 ? v.toLocaleString("en-US", {maximumFractionDigits: 0}) : v.toFixed(2);
+  const priceChart = new Chart(priceCtx, {
+    type: "line",
+    data: {
+      datasets: [{label: "Price", data: pts("price"), borderColor: "#3bc9ff", backgroundColor: "#3bc9ff", ...lineStyle}],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: {mode: "index", intersect: false},
+      scales: {
+        y: {beginAtZero: false, position: "right", afterFit: pinWidth, ticks: {callback: fmtPriceAxis, maxTicksLimit: 3}},
+        x: xAxis({ticks: {display: false}, grid: {display: false}}),
+      },
+      plugins: {
+        legend: {display: false},
+        tooltip: {callbacks: {title: dateTitle, label: c => `Price: ${fmtPrice(c.parsed.y, last.currency)}`}},
+        cutoffLine: {date: FIRST_LIVE_DATE},
+      },
+    },
+  });
 
   const peChart = new Chart(peCtx, {
     type: "line",
@@ -795,7 +829,7 @@ function renderChart(ticker, xMin, xMax) {
     },
   });
 
-  chartInstances.set(ticker, {pe: peChart, vol: volChart});
+  chartInstances.set(ticker, {price: priceChart, pe: peChart, vol: volChart});
 }
 
 async function refresh() {
@@ -821,7 +855,7 @@ const SPLIT_KEY = "pe-panel-split";
 const MIN_SPLIT = 0.2, MAX_SPLIT = 0.8;
 
 function reflowCharts() {
-  for (const inst of chartInstances.values()) { inst.pe?.resize(); inst.vol?.resize(); }
+  for (const inst of chartInstances.values()) { inst.price?.resize(); inst.pe?.resize(); inst.vol?.resize(); }
 }
 
 function setSplit(frac, persist) {
