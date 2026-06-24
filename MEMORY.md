@@ -6,7 +6,7 @@
 off `main`; package/slug `averaging_calc`/`averaging-calc`, icon 🗻) — shares to add at market
 to move a position's P/L% to a target. Math is single-sourced in `calc.py::evaluate()` (page
 fetches the API; no JS formula). Independent review applied: non-finite inputs no longer 500,
-the target≈current knife-edge can't emit negative shares; 72 tests + Playwright pass. Pushed;
+the target≈current knife-edge can't emit negative shares; 76 tests + Playwright pass. Pushed;
 immediate next step is to open its PR. The pe_monitor chart thread below is the other open
 branch (`fix/pe-chart-downsample-gaps`).
 
@@ -73,14 +73,16 @@ ai_ratios JSON-snapshot persistence; an exempt `/healthz` endpoint.
   are computed server-side too.
 - **Hardening from an independent review (all verified):** (1) non-finite inputs `inf`/`nan`/
   `1e309` were returning HTTP **500** (Starlette `JSONResponse` uses `allow_nan=False`) — now
-  `math.isfinite` validates all four inputs → **400**; (2) an output finiteness guard (incl.
-  before `math.ceil`, which raises `OverflowError` on `inf`) so pathological *finite* overflow
-  also 400s, never 500; (3) `target==current` float knife-edge could emit a ~1e-12 *negative*
+  `math.isfinite` validates all four inputs → **400**; (2) a `_require_finite_result` guard on
+  *every* derived value — the top-level readout (`current_pnl_pct`/`pnl_amount`, which leaked
+  `inf` for extreme finite inputs like `avg_cost=1e-308`) **and** the plan (incl. before
+  `math.ceil`, which `OverflowError`s on `inf`) — so all overflow 400s, never 500; (3)
+  `target==current` float knife-edge could emit a ~1e-12 *negative*
   share count — guarded by requiring `shares_to_buy > 0` before marking reachable.
 - Verified: re-derived formula independently; 200k+50k random round-trips reproduce the target%
   to ~1e-13; monotonicity 0 violations; **Playwright** browser drive renders correctly with no
   console errors. `tests/test_averaging_calc.py` (18) + `test_discovery_order_and_unique_slugs`
-  fix. **72 tests pass.** Pushed; PR not yet opened.
+  fix. **76 tests pass.** Pushed; PR not yet opened.
 
 ### 2026-06-23 — Forward-P/E money-losing handling (Design Y, branch `fix/pe-chart-gaps-and-ibes-neg`)
 - Problem: a company forecast to lose money has negative forward EPS ⇒ forward P/E is
