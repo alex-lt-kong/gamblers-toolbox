@@ -8,22 +8,20 @@
 <link rel="alternate icon" type="image/png" sizes="192x192" href="{{ url_for('pe_monitor_static', path='icon-192.png') }}">
 <link rel="apple-touch-icon" href="{{ url_for('pe_monitor_static', path='icon-192.png') }}">
 <link rel="manifest" href="{{ url_for('pe_monitor_static', path='manifest.webmanifest') }}">
-<meta name="theme-color" content="#0d6efd">
+<meta name="theme-color" content="#000000">
+<link rel="stylesheet" href="/static/terminal.css">
 <script src="{{ url_for('pe_monitor_static', path='ag-grid-community.min.js') }}"></script>
 <script src="{{ url_for('pe_monitor_static', path='chart.umd.js') }}"></script>
 <script src="{{ url_for('pe_monitor_static', path='grid-prefs.js') }}"></script>
 <style>
 :root{
-  --bg:#f8f9fa; --surface:#fff; --ink:#212529; --muted:#6c757d;
-  --border:#dee2e6; --accent:#0d6efd; --accent-2:#dc3545; --dark:#343a40;
-  --shadow:0 1px 4px rgba(0,0,0,.08); --radius:6px;
+  /* colours come from terminal.css; only the layout vars are page-local */
   --split:.5;        /* left-panel fraction of the two-column layout */
   --gutter:1.5rem;   /* draggable divider column width */
 }
 *{box-sizing:border-box}
 html{scroll-behavior:smooth}
 body{
-  font-family:system-ui,-apple-system,sans-serif;
   margin:0;padding:0 1rem 3rem;
   background:var(--bg);color:var(--ink);
 }
@@ -32,17 +30,9 @@ header{
   display:flex;align-items:center;justify-content:space-between;
   padding:1rem 0;border-bottom:1px solid var(--border);
 }
-header h1{font-size:1.3rem;margin:0;display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap}
+header h1{font-size:1.15rem;margin:0;display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap;color:var(--amber);letter-spacing:.04em}
 header .meta{color:var(--muted);font-size:.8rem;font-weight:normal}
-button{
-  background:var(--dark);color:#fff;border:0;padding:.5rem 1rem;
-  border-radius:4px;cursor:pointer;font-size:.85rem;transition:background .15s;
-}
-button:hover{background:#495057}
-button:disabled{background:#adb5bd;cursor:wait}
 .header-actions{display:flex;align-items:center;gap:.75rem}
-.nav-link{color:var(--accent);text-decoration:none;font-size:.85rem;font-weight:600;white-space:nowrap}
-.nav-link:hover{text-decoration:underline}
 
 .dashboard{display:grid;gap:2rem;margin:1.25rem 0;grid-template-columns:1fr}
 .gutter{display:none}
@@ -80,9 +70,9 @@ section.summary h2,section.charts h2{
 #summary-grid .cell-link{color:inherit;text-decoration:none}
 #summary-grid .cell-link:hover{text-decoration:underline}
 #summary-grid .ccy-native{color:var(--muted);font-size:.85em;margin-left:.25em}
-#summary-grid .crawl-fresh{color:#198754;font-weight:600}
-#summary-grid .crawl-warn{color:#d97706;font-weight:600}
-#summary-grid .crawl-stale{color:#dc3545;font-weight:600}
+#summary-grid .crawl-fresh{color:#2ecc71;font-weight:600}
+#summary-grid .crawl-warn{color:#ffd23f;font-weight:600}
+#summary-grid .crawl-stale{color:#ff5252;font-weight:600}
 
 .chart-card{
   background:var(--surface);padding:1rem 1.25rem;margin:1rem 0;
@@ -109,7 +99,7 @@ canvas{width:100%!important;height:100%!important}
   font-weight:600;letter-spacing:.3px;
 }
 .range-btn:hover{background:var(--surface);color:var(--ink)}
-.range-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.range-btn.active{background:var(--accent);color:#000;border-color:var(--accent)}
 .chart-controls{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap}
 .date-range{display:flex;align-items:center;gap:.3rem}
 .date-range input[type=date]{
@@ -277,7 +267,7 @@ const cutoffLinePlugin = {
     const {top, bottom} = chart.chartArea;
     const ctx = chart.ctx;
     ctx.save();
-    ctx.strokeStyle = "rgba(108, 117, 125, 0.7)";
+    ctx.strokeStyle = "rgba(255, 158, 27, 0.55)";
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 3]);
     ctx.beginPath();
@@ -308,6 +298,11 @@ const lossBandsPlugin = {
   },
 };
 Chart.register(lossBandsPlugin);
+
+// Dark-theme Chart.js: light ticks/legend text, dim grid lines on the black canvas.
+Chart.defaults.color = "#9aa3ad";
+Chart.defaults.borderColor = "#232a32";
+Chart.defaults.font.family = "'IBM Plex Mono', monospace";
 
 let gridApi;
 const visibleCharts = new Set();
@@ -459,7 +454,15 @@ function ensureGrid() {
   if (gridApi) return;
   agGrid.ModuleRegistry.registerModules([agGrid.AllCommunityModule]);
   gridApi = agGrid.createGrid(document.getElementById("summary-grid"), {
-    theme: agGrid.themeQuartz.withParams({rowHeight: 32, headerHeight: 36}),
+    theme: agGrid.themeQuartz.withParams({
+      rowHeight: 30, headerHeight: 34,
+      fontFamily: "IBM Plex Mono, monospace", fontSize: 12,
+      backgroundColor: "#0a0d11", foregroundColor: "#d7dde4",
+      chromeBackgroundColor: "#13181e", headerBackgroundColor: "#13181e",
+      headerTextColor: "#ff9e1b", borderColor: "#232a32",
+      oddRowBackgroundColor: "#0c1014", rowHoverColor: "#13181e",
+      accentColor: "#ff9e1b", browserColorScheme: "dark",
+    }),
     columnDefs: COLUMN_DEFS,
     rowData: [],
     domLayout: "normal",
@@ -608,9 +611,9 @@ function renderChart(ticker, xMin, xMax) {
   };
   const tint = (runs, c) => runs.map(b => ({...b, color: c}));
   const lossBandList = [
-    ...tint(lossOf("trailing_eps", "ttm_pe", false), "rgba(13,110,253,0.12)"),  // TTM loss
-    ...tint(lossRuns(r => r.forward_pe_loss), "rgba(220,53,69,0.12)"),           // fwd loss
-    ...tint(lossRuns(r => r.forward_pe_ibes_loss), "rgba(25,135,84,0.12)"),      // IBES loss
+    ...tint(lossOf("trailing_eps", "ttm_pe", false), "rgba(255,158,27,0.13)"),  // TTM loss
+    ...tint(lossRuns(r => r.forward_pe_loss), "rgba(255,82,82,0.13)"),           // fwd loss
+    ...tint(lossRuns(r => r.forward_pe_ibes_loss), "rgba(46,204,113,0.13)"),     // IBES loss
   ];
 
   const pinWidth = axis => { axis.width = Y_AXIS_WIDTH; };
@@ -628,10 +631,10 @@ function renderChart(ticker, xMin, xMax) {
     type: "line",
     data: {
       datasets: [
-        {label: "TTM P/E", data: pts("ttm_pe"), borderColor: "#0d6efd", backgroundColor: "#0d6efd", ...lineStyle},
-        {label: "Forward P/E", data: pts("forward_pe"), borderColor: "#dc3545", backgroundColor: "#dc3545", ...lineStyle,
+        {label: "TTM P/E", data: pts("ttm_pe"), borderColor: "#ff9e1b", backgroundColor: "#ff9e1b", ...lineStyle},
+        {label: "Forward P/E", data: pts("forward_pe"), borderColor: "#ff5252", backgroundColor: "#ff5252", ...lineStyle,
          pointRadius: flagRadius("forward_pe_interpolated", 1.5), pointHoverRadius: flagRadius("forward_pe_interpolated", 4)},
-        {label: "Forward P/E (IBES)", data: pts("forward_pe_ibes"), borderColor: "#198754", backgroundColor: "#198754", ...lineStyle,
+        {label: "Forward P/E (IBES)", data: pts("forward_pe_ibes"), borderColor: "#2ecc71", backgroundColor: "#2ecc71", ...lineStyle,
          borderDash: [5, 3], pointRadius: flagRadius("forward_pe_ibes_interpolated", 2), pointHoverRadius: flagRadius("forward_pe_ibes_interpolated", 4)},
       ],
     },
@@ -657,7 +660,7 @@ function renderChart(ticker, xMin, xMax) {
       datasets: [{
         label: "Volume",
         data: pts("volume"),
-        backgroundColor: "rgba(108, 117, 125, 0.55)",
+        backgroundColor: "rgba(110, 120, 134, 0.5)",
         borderWidth: 0,
       }],
     },

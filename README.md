@@ -1,4 +1,4 @@
-# Gambler's Toolbox
+# Gambler's Terminal
 
 One FastAPI app: a landing page mounting each tool as a self-contained **module**
 (`modules/<slug>/` exposing `MODULE`) — one port, shared auth, Swagger at `/docs`.

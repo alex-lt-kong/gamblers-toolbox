@@ -1,4 +1,4 @@
-# Gambler's Toolbox host config — copy to config.toml and edit.
+# Gambler's Terminal host config — copy to config.toml and edit.
 # Only shared concerns live here; each module keeps its own config.
 
 host = "127.0.0.1"

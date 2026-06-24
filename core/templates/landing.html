@@ -3,40 +3,52 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Gambler's Toolbox</title>
+<title>Gambler's Terminal</title>
 <link rel="icon" type="image/svg+xml" href="/static/icon.svg">
 <link rel="alternate icon" href="/static/favicon.ico" sizes="any">
 <link rel="apple-touch-icon" href="/static/icon-192.png">
 <link rel="manifest" href="/static/manifest.webmanifest">
-<meta name="theme-color" content="#0f172a">
-<style>
-body{font-family:system-ui,sans-serif;max-width:760px;margin:2.5rem auto;padding:0 1rem;background:#f8f9fa;color:#212529}
-h1{font-size:1.5rem;margin-bottom:.25rem}
-p.sub{color:#6c757d;margin-top:0}
-ul{list-style:none;padding:0;margin:1.5rem 0;display:grid;gap:1rem}
-a.card{display:block;text-decoration:none;color:inherit;background:#fff;border:1px solid #dee2e6;border-radius:8px;padding:1rem 1.25rem;box-shadow:0 1px 3px rgba(0,0,0,.06);transition:box-shadow .15s,transform .15s}
-a.card:hover{box-shadow:0 4px 12px rgba(0,0,0,.1);transform:translateY(-1px)}
-.name{font-size:1.1rem;font-weight:600}
-.desc{color:#6c757d;font-size:.9rem;margin-top:.25rem}
-.icon{margin-right:.5rem}
-footer{color:#6c757d;font-size:.85rem;margin-top:2rem}
-footer a{color:#0d6efd}
-.empty{color:#6c757d;font-style:italic}
-</style>
+<meta name="theme-color" content="#000000">
+<link rel="stylesheet" href="/static/terminal.css">
 </head>
 <body>
-<h1>Gambler's Toolbox</h1>
-<p class="sub">A unified home for market tooling.</p>
-<ul>
-{% for m in modules %}
-  <li><a class="card" href="/{{ m.slug }}/">
-    <div class="name">{% if m.icon %}<span class="icon">{{ m.icon }}</span>{% endif %}{{ m.name }}</div>
-    <div class="desc">{{ m.description }}</div>
-  </a></li>
-{% else %}
-  <li class="empty">No modules found under modules/.</li>
-{% endfor %}
-</ul>
-<footer>API docs: <a href="/docs">/docs</a> &middot; <a href="/redoc">/redoc</a></footer>
+<div class="term">
+  <header class="term-header">
+    <div class="brand">GAMBLER'S TERMINAL<span class="cursor">▌</span></div>
+    <div class="term-clock" id="clock"></div>
+  </header>
+
+  <div class="term-subbar">Main Menu — Select a Function</div>
+
+  <ul class="menu">
+  {% for m in modules %}
+    <li><a class="menu-row" href="/{{ m.slug }}/">
+      <span class="idx">{{ "%02d"|format(loop.index) }}</span>
+      <span class="fn">{% if m.icon %}<span class="ic">{{ m.icon }}</span>{% endif %}{{ m.name }}</span>
+      <span class="desc">{{ m.description }}</span>
+      <span class="path">{{ m.slug|upper }}&nbsp;&rsaquo;</span>
+    </a></li>
+  {% else %}
+    <li class="empty">No modules found under modules/.</li>
+  {% endfor %}
+  </ul>
+</div>
+
+<footer class="term-status">
+  <span class="k">DOCS</span> <a href="/docs">/docs</a> <a href="/redoc">/redoc</a>
+  <span class="spacer"></span>
+  <span class="muted">GAMBLER'S TERMINAL</span>
+</footer>
+
+<script>
+const clock = document.getElementById('clock');
+function tick() {
+  const d = new Date();
+  const p = n => String(n).padStart(2, '0');
+  clock.textContent = `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ` +
+    `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+tick(); setInterval(tick, 1000);
+</script>
 </body>
 </html>

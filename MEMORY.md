@@ -2,13 +2,12 @@
 
 ## Active Status
 
-**Latest:** Added a **Pyramiding Calculator** module (branch `feat/avg-down-calculator`,
-off `main`; package/slug `averaging_calc`/`averaging-calc`, icon 🗻) — shares to add at market
-to move a position's P/L% to a target. Math is single-sourced in `calc.py::evaluate()` (page
-fetches the API; no JS formula). Independent review applied: non-finite inputs no longer 500,
-the target≈current knife-edge can't emit negative shares; 76 tests + Playwright pass. Pushed;
-immediate next step is to open its PR. The pe_monitor chart thread below is the other open
-branch (`fix/pe-chart-downsample-gaps`).
+**Latest:** **Bloomberg-terminal UI overhaul** + rename to **Gambler's Terminal** on branch
+`feat/bloomberg-terminal-theme` (off `main`, which now includes the merged Pyramiding Calculator,
+PR #11). Shared `core/static/terminal.css` (black/amber/green-red, IBM Plex Mono bundled locally)
+themes all pages; ag-grid + Chart.js recoloured. 76 tests + Playwright pass; committed locally,
+not pushed. **Open item the user flagged:** chart only has the Bloomberg *palette*, not the
+*conventions* — right-hand price axis, last-value price tags, hover crosshair — awaiting scope.
 
 **Objective:** pe_monitor now handles money-losing companies correctly — forward-P/E
 lines (live red + IBES green) **break** across forecast-loss windows instead of
@@ -55,6 +54,29 @@ ai_ratios JSON-snapshot persistence; an exempt `/healthz` endpoint.
   npm registry reachable here; external UAT host is NOT (sandbox egress).
 
 ## Activity Log
+
+### 2026-06-24 — Bloomberg-terminal theme + rename to "Gambler's Terminal" (branch `feat/bloomberg-terminal-theme`)
+- Overhauled look/feel to mimic a Bloomberg Terminal. New shared `core/static/terminal.css`
+  (served at `/static/terminal.css`, linked by every page): black canvas, amber chrome, green/red
+  data, cyan functions/links, sharp corners, dense monospace. Palette centralized in CSS vars,
+  reusing legacy `--bg/--surface/--ink/--muted/--border/--accent` names so the variable-driven
+  `dashboard.html` recolored almost for free (data pages drop their inline `:root` colours).
+- Pages: landing → "function menu" (amber header + live clock, amber function bar, numbered rows,
+  cyan mnemonics, fixed bottom status bar); calculator + ai_ratios + delta + dashboard all themed.
+- ag-grid `themeQuartz.withParams` → dark (amber headers, black rows) on both pe_monitor grids.
+  Chart.js: TTM→amber, forward→red, IBES→green on black; dim grid/ticks via `Chart.defaults`;
+  loss-band tints + cutoff line retinted; volume bars muted. NOTE: only the chart *palette* is
+  Bloomberg — NOT yet the conventions (right price axis, last-value tags, crosshair) — open item.
+- Font: bundled **IBM Plex Mono** locally (OFL, `core/static/fonts/*.woff2`, no CDN) as `--mono`
+  + ag-grid `fontFamily` + `Chart.defaults.font.family`. Closest free face to the Terminal's
+  institutional monospace (VT323/Share Tech Mono compared, rejected). Emoji fallbacks appended;
+  sandbox has no emoji font so module icons (📈🗻🤖) tofu in screenshots only, fine in-browser.
+- Rename **Gambler's Toolbox → Gambler's Terminal** across display strings only (FastAPI title,
+  landing, README, manifest name/short_name + black theme colour, config-sample comments). Kept
+  internal ids (slug `gamblers-toolbox`, env var `GAMBLERS_TOOLBOX_CONFIG`, log prefix) unchanged.
+- Verified: 76 tests pass (incl. chart e2e geometry — recolor moved no pixels); Playwright drove
+  all pages, `document.fonts.check` confirms IBM Plex Mono loaded, zero console errors. Local
+  commit; not pushed, no PR.
 
 ### 2026-06-24 — Add Pyramiding Calculator module (branch `feat/avg-down-calculator`)
 - New self-contained module `modules/averaging_calc/` (display name "Pyramiding Calculator",
@@ -159,18 +181,5 @@ ai_ratios JSON-snapshot persistence; an exempt `/healthz` endpoint.
 - Tests: +`test_unknown_key_rejected`, +`test_build_app_rejects_weak_secret_with_auth`,
   +`test_bounded_read_matches_full_history` (6 tickers × 4 windows). 30 pass.
 - Also trimmed README 103→65 lines.
-
-### 2026-06-22 — Add Δ-forward-P/E page to pe_monitor (branch `feat/delta-fwd-pe`)
-- New page `/pe-monitor/delta` + `delta.html`: per-ticker forward-P/E change over a
-  selectable window (1D/1W/1M/3M/6M/YTD/1Y), ag-grid leaderboard sorted by |Δ%|, nav
-  links both ways. No schema change.
-- `GET /pe-monitor/api/delta?window=` and `_delta_point` in `views.py`. Live `forward_pe`
-  only (no IBES). Critical: the raw live series is sparse, so it's interpolated to daily
-  (same `_interpolate_series` as the chart) **before** snapping `then` to now−window —
-  otherwise a 1-month delta snaps to an anchor a year back. Interpolated endpoints are
-  flagged (`≈`); `then` is null when the window predates coverage.
-- `tests/test_delta.py` (6 tests): window/snap/interp logic + endpoint shape/fallback. 27 pass.
-- Branch `feat/delta-fwd-pe`, rebased onto `main` after PR #6 (unified-fastapi-landing)
-  merged; pushed for its own PR.
 
 _(Older entries moved to `MEMORY_ARCHIVE.md`.)_

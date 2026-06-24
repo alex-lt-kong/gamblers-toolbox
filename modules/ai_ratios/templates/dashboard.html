@@ -3,54 +3,69 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>AI Exposure Monitor</title>
+<title>AI Ratios</title>
+<meta name="theme-color" content="#000000">
+<link rel="stylesheet" href="/static/terminal.css">
 <style>
-body{font-family:system-ui,sans-serif;max-width:680px;margin:2rem auto;padding:0 1rem;background:#f8f9fa;color:#212529}
-h1{font-size:1.3rem}
-p.ts{color:#6c757d;font-size:.85rem;margin-top:-.5rem}
-button{font:inherit;font-size:.8rem;padding:.2rem .6rem;border:1px solid #ced4da;border-radius:4px;background:#fff;cursor:pointer}
-button:disabled{opacity:.6;cursor:default}
-table{width:100%;border-collapse:collapse;background:#fff;border-radius:6px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.1)}
-th{background:#343a40;color:#fff;padding:.55rem .75rem;text-align:left;font-size:.82rem}
-td{padding:.5rem .75rem;border-bottom:1px solid #dee2e6;font-size:.88rem}
-tr:last-child td{border-bottom:none}tr:hover td{background:#f1f3f5}
-td:nth-child(2),td:nth-child(3),td:nth-child(4){text-align:right;font-variant-numeric:tabular-nums}
-tfoot td{font-weight:600;background:#f1f3f5;border-top:2px solid #dee2e6}
-.muted{font-size:.8rem;color:#6c757d}
+.term { max-width: 720px; }
+.header-actions { display: flex; align-items: center; gap: 12px; }
+td:nth-child(2), td:nth-child(3), td:nth-child(4) { text-align: right; }
+tfoot td { font-weight: 700; color: var(--amber); background: var(--panel-2); border-top: 1px solid var(--border-strong); }
+td code { color: var(--cyan); }
+.ts { color: var(--muted); font-size: 12px; margin: 10px 2px; font-variant-numeric: tabular-nums; }
+.notes { color: var(--muted); font-size: 11px; margin: 12px 2px 0; line-height: 1.6; }
+.warn { color: var(--yellow); }
 </style>
 </head>
 <body>
-<h1>AI Exposure Monitor</h1>
-<p class="ts">
-{% if computed_at %}Updated: <span id="ts" data-ts="{{ computed_at }}">{{ computed_at }}</span>{% else %}No data yet — first computation runs in the background.{% endif %}
-<button id="refresh-btn" onclick="refresh()">Refresh</button>
-</p>
-{% if stale or last_error %}
-<p class="muted" style="color:#b45309">&#9888; Data may be incomplete{% if coverage is not none %} (coverage {{ "%.0f%%"|format(coverage * 100) }}){% endif %}{% if last_error %} &mdash; {{ last_error }}{% endif %}.</p>
-{% endif %}
-{% if rows %}
-<table>
-<thead><tr><th>Ticker</th><th>Fineness</th><th>S&amp;P 500 Weight</th><th>Adjusted Weight</th></tr></thead>
-<tbody>
-{% for r in rows %}
-<tr>
-<td><code>{{ r.ticker }}</code></td>
-<td>{{ "%.0f%%"|format(r.fineness * 100) }}</td>
-<td>{{ "%.2f%%"|format(r.weight) }}</td>
-<td>{{ "%.2f%%"|format(r.contribution) }}</td>
-</tr>
-{% endfor %}
-</tbody>
-<tfoot>
-<tr><td>Total ({{ rows|length }} stocks)</td><td></td><td>{{ "%.2f%%"|format(raw) }}</td><td>{{ "%.2f%%"|format(adjusted) }}</td></tr>
-</tfoot>
-</table>
-{% if missing %}<p class="muted">Not in S&amp;P 500 (excluded): {{ missing|join(', ') }}</p>{% endif %}
-{% else %}
-<p class="muted">Click Refresh in a moment once the first computation finishes.</p>
-{% endif %}
-<p class="muted">S&amp;P 500 weights sourced from market caps via Yahoo Finance.
-<a href="https://www.slickcharts.com/sp500" target="_blank" rel="noopener">Sanity check on Slickcharts</a>.</p>
+<div class="term">
+  <header class="term-header">
+    <div class="brand">🤖 AI RATIOS</div>
+    <div class="header-actions">
+      <button id="refresh-btn" onclick="refresh()">Refresh</button>
+      <a class="nav-link" href="/">← Terminal</a>
+    </div>
+  </header>
+
+  <div class="term-subbar">S&amp;P 500 AI-Exposure Share</div>
+
+  <p class="ts">
+  {% if computed_at %}Updated: <span id="ts" data-ts="{{ computed_at }}">{{ computed_at }}</span>{% else %}No data yet — first computation runs in the background.{% endif %}
+  </p>
+  {% if stale or last_error %}
+  <p class="notes warn">&#9888; Data may be incomplete{% if coverage is not none %} (coverage {{ "%.0f%%"|format(coverage * 100) }}){% endif %}{% if last_error %} &mdash; {{ last_error }}{% endif %}.</p>
+  {% endif %}
+  {% if rows %}
+  <table>
+  <thead><tr><th>Ticker</th><th>Fineness</th><th>S&amp;P 500 Weight</th><th>Adjusted Weight</th></tr></thead>
+  <tbody>
+  {% for r in rows %}
+  <tr>
+  <td><code>{{ r.ticker }}</code></td>
+  <td>{{ "%.0f%%"|format(r.fineness * 100) }}</td>
+  <td>{{ "%.2f%%"|format(r.weight) }}</td>
+  <td>{{ "%.2f%%"|format(r.contribution) }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+  <tfoot>
+  <tr><td>Total ({{ rows|length }} stocks)</td><td></td><td>{{ "%.2f%%"|format(raw) }}</td><td>{{ "%.2f%%"|format(adjusted) }}</td></tr>
+  </tfoot>
+  </table>
+  {% if missing %}<p class="notes">Not in S&amp;P 500 (excluded): {{ missing|join(', ') }}</p>{% endif %}
+  {% else %}
+  <p class="notes">Click Refresh in a moment once the first computation finishes.</p>
+  {% endif %}
+  <p class="notes">S&amp;P 500 weights sourced from market caps via Yahoo Finance.
+  <a href="https://www.slickcharts.com/sp500" target="_blank" rel="noopener">Sanity check on Slickcharts</a>.</p>
+</div>
+
+<footer class="term-status">
+  <span class="k">FN</span> <span class="muted">AI-RATIOS</span>
+  <span class="spacer"></span>
+  <span class="muted">GAMBLER'S TERMINAL</span>
+</footer>
+
 <script>
 const API_BASE = "{{ api_base }}";
 async function refresh() {

@@ -1,13 +1,13 @@
 {
   "id": "/",
-  "name": "Gambler's Toolbox",
-  "short_name": "Gambler's",
-  "description": "A unified home for market tools.",
+  "name": "Gambler's Terminal",
+  "short_name": "Terminal",
+  "description": "A unified terminal for market tools.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#0f172a",
-  "theme_color": "#0f172a",
+  "background_color": "#000000",
+  "theme_color": "#000000",
   "icons": [
     { "src": "/static/icon.svg", "type": "image/svg+xml", "sizes": "any" },
     { "src": "/static/icon-192.png", "type": "image/png", "sizes": "192x192", "purpose": "any" },

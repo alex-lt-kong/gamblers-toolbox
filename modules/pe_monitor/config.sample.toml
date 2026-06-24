@@ -23,7 +23,7 @@ database_path = "pe_history.db"
 #   sqlite> SELECT MIN(date) FROM history WHERE forward_pe IS NOT NULL;
 first_live_collection_date = "2026-01-01"
 
-# Network binding (host/port) is owned by the top-level Gambler's Toolbox config.
+# Network binding (host/port) is owned by the top-level Gambler's Terminal config.
 
 # IBES historical-EPS backfill (used by backfill/import_ibes.py).
 # Two I/B/E/S dumps, joined on (TICKER, STATPERS):

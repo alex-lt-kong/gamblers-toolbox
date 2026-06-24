@@ -1,0 +1,168 @@
+/* Gambler's Terminal — a Bloomberg-Terminal-inspired theme shared by every page.
+   Black canvas, amber chrome, monospace, green/red data, cyan functions. Pages
+   reuse the legacy variable names (--bg/--surface/--ink/--muted/--border/--accent)
+   so existing components recolor automatically. */
+
+/* IBM Plex Mono — bundled locally (OFL); the closest free face to the Terminal's
+   institutional monospace. No CDN dependency. */
+@font-face {
+  font-family: "IBM Plex Mono"; font-weight: 400; font-style: normal; font-display: swap;
+  src: url("/static/fonts/ibm-plex-mono-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono"; font-weight: 700; font-style: normal; font-display: swap;
+  src: url("/static/fonts/ibm-plex-mono-700.woff2") format("woff2");
+}
+
+:root {
+  --bg: #000000;
+  --panel: #0a0d11;
+  --surface: #0a0d11;
+  --panel-2: #13181e;
+  --border: #232a32;
+  --border-strong: #3a4450;
+
+  --amber: #ff9e1b;
+  --amber-dim: #c2780f;
+  --ink: #d7dde4;        /* primary data text */
+  --muted: #79828d;      /* labels / secondary */
+  --up: #2ecc71;         /* positive / gain */
+  --down: #ff5252;       /* negative / loss */
+  --cyan: #3bc9ff;       /* links / functions */
+  --yellow: #ffd23f;
+
+  --accent: var(--amber);
+  --accent-2: var(--down);
+  --dark: var(--panel-2);
+  --shadow: none;
+  --radius: 0;
+  --mono: "IBM Plex Mono", "SFMono-Regular", "DejaVu Sans Mono", Consolas, Menlo, monospace,
+          "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji";
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: var(--mono);
+  background: var(--bg);
+  color: var(--ink);
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection { background: var(--amber); color: #000; }
+
+/* dark scrollbars */
+* { scrollbar-color: var(--border-strong) var(--bg); scrollbar-width: thin; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: var(--bg); }
+*::-webkit-scrollbar-thumb { background: var(--border-strong); border: 2px solid var(--bg); }
+
+a { color: var(--cyan); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.nav-link { color: var(--cyan); font-size: 12px; font-weight: 700; letter-spacing: .04em; white-space: nowrap; }
+
+code, .mono { font-family: var(--mono); }
+
+h1, h2, h3 { font-weight: 700; letter-spacing: .04em; margin: 0; }
+
+/* semantic helpers */
+.amber { color: var(--amber); }
+.cyan  { color: var(--cyan); }
+.muted { color: var(--muted); }
+.up    { color: var(--up); }
+.down  { color: var(--down); }
+.num   { font-variant-numeric: tabular-nums; }
+
+/* ---- terminal chrome ---------------------------------------------------- */
+.term { max-width: 980px; margin: 0 auto; padding: 0 12px 64px; }
+
+.term-header {
+  position: sticky; top: 0; z-index: 20; background: var(--bg);
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 0; border-bottom: 2px solid var(--amber);
+}
+.term-header .brand {
+  color: var(--amber); font-size: 16px; font-weight: 700; letter-spacing: .12em;
+}
+.term-header .brand .cursor { animation: blink 1.1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.term-clock { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+
+/* amber section/function bar */
+.term-subbar {
+  background: var(--amber); color: #000; font-weight: 700; letter-spacing: .1em;
+  padding: 3px 10px; margin: 10px 0; font-size: 12px; text-transform: uppercase;
+}
+
+/* a generic dark panel */
+.panel {
+  background: var(--panel); border: 1px solid var(--border); padding: 12px 14px;
+}
+
+/* bottom status line, Bloomberg's function bar */
+.term-status {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+  display: flex; align-items: center; gap: 14px;
+  background: var(--panel-2); border-top: 1px solid var(--border);
+  color: var(--muted); font-size: 11px; letter-spacing: .06em;
+  padding: 4px 12px;
+}
+.term-status .k { color: var(--amber); font-weight: 700; }
+.term-status .spacer { flex: 1; }
+
+/* ---- tables ------------------------------------------------------------- */
+table { width: 100%; border-collapse: collapse; background: var(--panel); }
+th {
+  background: var(--panel-2); color: var(--amber); text-align: left;
+  text-transform: uppercase; letter-spacing: .06em; font-size: 11px;
+  padding: 5px 10px; border-bottom: 1px solid var(--border-strong);
+}
+td {
+  padding: 5px 10px; border-bottom: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+tbody tr:hover td { background: var(--panel-2); }
+tr:last-child td { border-bottom: none; }
+
+/* ---- controls ----------------------------------------------------------- */
+button, .btn {
+  font-family: var(--mono); font-size: 12px; font-weight: 700;
+  letter-spacing: .04em; text-transform: uppercase;
+  background: var(--panel-2); color: var(--amber);
+  border: 1px solid var(--border-strong); border-radius: 0;
+  padding: 4px 12px; cursor: pointer;
+}
+button:hover, .btn:hover { background: var(--amber); color: #000; }
+button:disabled { opacity: .5; cursor: wait; }
+
+input, select {
+  font-family: var(--mono); font-size: 13px;
+  background: #05080b; color: var(--ink);
+  border: 1px solid var(--border-strong); border-radius: 0;
+  padding: 5px 8px;
+}
+input:focus, select:focus { outline: none; border-color: var(--amber); }
+input::placeholder { color: #45505c; }
+
+.err { color: var(--down); }
+
+/* ---- landing menu ------------------------------------------------------- */
+.menu { list-style: none; margin: 0; padding: 0; }
+.menu-row {
+  display: grid; grid-template-columns: 2.4em 1fr auto; gap: 10px; align-items: baseline;
+  padding: 9px 12px; border: 1px solid var(--border); border-top: none;
+  color: var(--ink);
+}
+.menu li:first-child .menu-row { border-top: 1px solid var(--border); }
+.menu-row:hover { background: var(--panel-2); text-decoration: none; }
+.menu-row:hover .fn { color: #fff; }
+.menu-row .idx { color: var(--amber); font-weight: 700; }
+.menu-row .fn { color: var(--amber); font-weight: 700; letter-spacing: .04em; }
+.menu-row .fn .ic { margin-right: .4em; filter: saturate(1.4); }
+.menu-row .desc { color: var(--muted); grid-column: 2; font-size: 12px; }
+.menu-row .path { color: var(--cyan); font-size: 12px; white-space: nowrap; align-self: center; }
+.empty { color: var(--muted); padding: 12px; border: 1px solid var(--border); }

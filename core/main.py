@@ -74,7 +74,7 @@ def build_app(config: host_config.HostConfig, modules: list) -> FastAPI:
                         stack.enter_context(m.scheduler())
             yield
 
-    app = FastAPI(title="Gambler's Toolbox", lifespan=lifespan)
+    app = FastAPI(title="Gambler's Terminal", lifespan=lifespan)
 
     # Gate first, then SessionMiddleware last so it sits outermost and
     # request.session is populated before the gate reads it.
