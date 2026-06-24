@@ -5,9 +5,9 @@
 **Latest:** **Bloomberg-terminal UI overhaul** + rename to **Gambler's Terminal** on branch
 `feat/bloomberg-terminal-theme` (off `main`, which now includes the merged Pyramiding Calculator,
 PR #11). Shared `core/static/terminal.css` (black/amber/green-red, IBM Plex Mono bundled locally)
-themes all pages; ag-grid + Chart.js recoloured. 76 tests + Playwright pass; committed locally,
-not pushed. **Open item the user flagged:** chart only has the Bloomberg *palette*, not the
-*conventions* — right-hand price axis, last-value price tags, hover crosshair — awaiting scope.
+themes all pages; ag-grid + Chart.js recoloured, and charts are now Bloomberg *GP*-style (price
+axis on the **right** + colored last-value tags; crosshair declined). 76 tests + Playwright pass;
+committed locally, not pushed.
 
 **Objective:** pe_monitor now handles money-losing companies correctly — forward-P/E
 lines (live red + IBES green) **break** across forecast-loss windows instead of
@@ -65,8 +65,11 @@ ai_ratios JSON-snapshot persistence; an exempt `/healthz` endpoint.
   cyan mnemonics, fixed bottom status bar); calculator + ai_ratios + delta + dashboard all themed.
 - ag-grid `themeQuartz.withParams` → dark (amber headers, black rows) on both pe_monitor grids.
   Chart.js: TTM→amber, forward→red, IBES→green on black; dim grid/ticks via `Chart.defaults`;
-  loss-band tints + cutoff line retinted; volume bars muted. NOTE: only the chart *palette* is
-  Bloomberg — NOT yet the conventions (right price axis, last-value tags, crosshair) — open item.
+  loss-band tints + cutoff line retinted; volume bars muted. Bloomberg *GP*-style conventions
+  added: price axis moved to the **right** on both stacked charts (pe/vol stay pixel-aligned via
+  `pinX` now padding *both* ends — moving y off the left un-pinned it), plus a `lastValueTagPlugin`
+  drawing a colored latest-value chip per line over the right axis (vertically dodged when close).
+  Crosshair declined by user. e2e alignment test still green.
 - Font: bundled **IBM Plex Mono** locally (OFL, `core/static/fonts/*.woff2`, no CDN) as `--mono`
   + ag-grid `fontFamily` + `Chart.defaults.font.family`. Closest free face to the Terminal's
   institutional monospace (VT323/Share Tech Mono compared, rejected). Emoji fallbacks appended;

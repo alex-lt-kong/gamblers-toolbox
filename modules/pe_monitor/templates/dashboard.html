@@ -304,6 +304,46 @@ Chart.defaults.color = "#9aa3ad";
 Chart.defaults.borderColor = "#232a32";
 Chart.defaults.font.family = "'IBM Plex Mono', monospace";
 
+// Bloomberg-style last-value tags: a colored chip per line pinned over the
+// right-hand price axis at the line's latest value. Line chart only; chips that
+// would overlap are nudged apart vertically.
+const lastValueTagPlugin = {
+  id: "lastValueTags",
+  afterDatasetsDraw(chart) {
+    if (chart.config.type !== "line") return;
+    const {ctx, chartArea, scales} = chart;
+    const yScale = scales.y;
+    const tags = [];
+    chart.data.datasets.forEach((ds, i) => {
+      if (chart.getDatasetMeta(i).hidden) return;
+      let v = null;
+      for (let k = ds.data.length - 1; k >= 0; k--) {
+        const p = ds.data[k], yv = (p && typeof p === "object") ? p.y : p;
+        if (yv != null && Number.isFinite(yv)) { v = yv; break; }
+      }
+      if (v != null) tags.push({y: yScale.getPixelForValue(v), color: ds.borderColor, text: v.toFixed(2)});
+    });
+    if (!tags.length) return;
+    const H = 15;
+    tags.sort((a, b) => a.y - b.y);
+    for (let i = 1; i < tags.length; i++)
+      if (tags[i].y - tags[i - 1].y < H) tags[i].y = tags[i - 1].y + H;
+    ctx.save();
+    ctx.font = "700 11px 'IBM Plex Mono', monospace";
+    ctx.textBaseline = "middle";
+    for (const t of tags) {
+      const w = ctx.measureText(t.text).width + 8;
+      const cy = Math.max(chartArea.top + H / 2, Math.min(chartArea.bottom - H / 2, t.y));
+      ctx.fillStyle = t.color;
+      ctx.fillRect(chartArea.right + 1, cy - H / 2, w, H);
+      ctx.fillStyle = "#000";
+      ctx.fillText(t.text, chartArea.right + 5, cy + 0.5);
+    }
+    ctx.restore();
+  },
+};
+Chart.register(lastValueTagPlugin);
+
 let gridApi;
 const visibleCharts = new Set();
 const chartInstances = new Map();
@@ -622,7 +662,10 @@ function renderChart(ticker, xMin, xMax) {
   // pixel in the line and volume charts. pinX reserves the same right gutter on
   // both — the volume axis pads for its last date label, the label-less P/E axis
   // would otherwise run wider — so the bars line up under the lines.
-  const pinX = s => { s.paddingRight = 36; };
+  // Pad both x-axis ends equally so the labelled volume axis and the label-less
+  // P/E axis share identical plot bounds (y-axis now sits on the right, so it no
+  // longer pins the left edge for us).
+  const pinX = s => { s.paddingLeft = 36; s.paddingRight = 36; };
   const xAxis = extra => ({type: "linear", offset: false, min: xMin, max: xMax,
                            afterFit: pinX, ...extra});
   const dateTitle = items => (items.length ? fmtDateAxis(items[0].parsed.x) : "");
@@ -643,7 +686,7 @@ function renderChart(ticker, xMin, xMax) {
       maintainAspectRatio: false,
       interaction: {mode: "index", intersect: false},
       scales: {
-        y: {beginAtZero: false, afterFit: pinWidth},
+        y: {beginAtZero: false, position: "right", afterFit: pinWidth},
         x: xAxis({ticks: {display: false}, grid: {display: false}}),
       },
       plugins: {
@@ -676,6 +719,7 @@ function renderChart(ticker, xMin, xMax) {
       scales: {
         y: {
           beginAtZero: true,
+          position: "right",
           afterFit: pinWidth,
           ticks: {callback: fmtVolumeAxis, maxTicksLimit: 3},
         },
