@@ -1,9 +1,26 @@
-from datetime import date
+from datetime import date, datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
 
 from modules.crypto_tracker import cache, twr
+
+
+class _Resp:
+    """Minimal stand-in for a requests Response."""
+
+    def __init__(self, payload):
+        self._payload = payload
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return self._payload
+
+
+def _day_ms(on_date):
+    return int(datetime.strptime(on_date, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp() * 1000)
 
 # --- Pure return math (prices injected; no network) ---
 
@@ -70,6 +87,13 @@ def test_xirr_resolves_extreme_short_window_rate():
     assert r is not None and r == pytest.approx(2 ** (365 / 30) - 1, rel=1e-3)
 
 
+def test_xirr_resolves_near_total_loss():
+    # >99.99% loss: root sits below the old fixed lower bound, used to return None.
+    flows = [(date(2023, 1, 1), -100.0), (date(2024, 1, 1), 0.001)]
+    r = twr.xirr(flows)
+    assert r is not None and r < -0.999
+
+
 def test_xirr_recovers_known_rate():
     flows = [(date(2023, 1, 1), -100.0), (date(2024, 1, 1), 110.0)]
     assert twr.xirr(flows) == pytest.approx(0.10, abs=1e-4)
@@ -134,6 +158,26 @@ def test_load_portfolio_rejects_bad_row_with_line_number(monkeypatch, tmp_path, 
     assert needle in str(e.value) and "line 3" in str(e.value)
 
 
+def test_load_portfolio_rejects_future_date(monkeypatch, tmp_path):
+    _write_csv(monkeypatch, tmp_path, "date,asset,delta,note\n2024-01-01,BTC,1.0,ok\n2999-01-01,BTC,1.0,typo\n")
+    with pytest.raises(ValueError) as e:
+        twr.load_portfolio()
+    assert "future date" in str(e.value) and "line 3" in str(e.value)
+
+
+def test_load_portfolio_rejects_oversell(monkeypatch, tmp_path):
+    _write_csv(monkeypatch, tmp_path, "date,asset,delta,note\n2024-01-01,BTC,1.0,buy\n2024-02-01,BTC,-3.0,oversell\n")
+    with pytest.raises(ValueError) as e:
+        twr.load_portfolio()
+    assert "oversold" in str(e.value) and "line 3" in str(e.value)
+
+
+def test_load_portfolio_allows_intraday_net_nonnegative(monkeypatch, tmp_path):
+    # A sell logged before its same-day buy nets >= 0 by end of day -> not an oversell.
+    _write_csv(monkeypatch, tmp_path, "date,asset,delta,note\n2024-01-01,BTC,-1.0,sell\n2024-01-01,BTC,2.0,buy\n")
+    assert len(twr.load_portfolio()) == 2
+
+
 # --- Price cache I/O (atomic write, corrupt read recovers) ---
 
 def test_cache_roundtrip_and_corrupt_recovers(monkeypatch, tmp_path):
@@ -159,6 +203,53 @@ def test_compute_end_to_end_is_deterministic(monkeypatch, tmp_path):
     assert alltime["twr"] == pytest.approx(1.0, abs=1e-3)  # 30-day double
     assert alltime["mwr"] == pytest.approx(1.0, abs=1e-3)
     assert alltime["cagr"] is None  # under a year -> not annualized
+
+
+def test_compute_drops_fully_exited_dust_position(monkeypatch, tmp_path):
+    # 0.1 + 0.1 + 0.1 - 0.3 leaves float dust (~5.5e-17), not an exact 0.
+    _write_csv(monkeypatch, tmp_path,
+               "date,asset,delta,note\n2024-01-01,BTC,0.1,\n2024-01-02,BTC,0.1,\n"
+               "2024-01-03,BTC,0.1,\n2024-01-04,BTC,-0.3,\n")
+    flat = FakePrices({("BTCUSDT", f"2024-01-0{d}"): 100.0 for d in range(1, 6)})
+    data = twr.compute(prices=flat, today=date(2024, 1, 5))
+    assert data["holdings"] == [] and data["total_value"] == pytest.approx(0.0, abs=1e-9)
+
+
+# --- Binance pricing paths (requests mocked) ---
+
+def test_historical_price_rejects_candle_from_a_later_day(monkeypatch):
+    on = "2017-01-01"  # before BTCUSDT listed -> /klines returns the listing-day candle
+    later = _day_ms(on) + 5 * 86_400_000
+    monkeypatch.setattr(twr.requests, "get", lambda *a, **k: _Resp([[later, "1", "1", "1", "9.0", "1"]]))
+    with pytest.raises(RuntimeError):
+        twr.historical_price("BTCUSDT", on, {})
+
+
+def test_historical_price_accepts_same_day_candle(monkeypatch):
+    on = "2024-01-01"
+    monkeypatch.setattr(twr.requests, "get", lambda *a, **k: _Resp([[_day_ms(on), "1", "1", "1", "42.0", "1"]]))
+    assert twr.historical_price("BTCUSDT", on, {}) == 42.0
+
+
+def test_current_prices_batches_into_one_request(monkeypatch):
+    calls = []
+
+    def fake_get(url, params=None, timeout=None):
+        calls.append(params)
+        return _Resp([{"symbol": "BTCUSDT", "price": "100.0"}, {"symbol": "ETHUSDT", "price": "50.0"}])
+
+    monkeypatch.setattr(twr.requests, "get", fake_get)
+    out = twr.current_prices(["BTCUSDT", "ETHUSDT"])
+    assert out == {"BTCUSDT": 100.0, "ETHUSDT": 50.0}
+    assert len(calls) == 1 and "symbols" in calls[0]
+
+
+def test_cli_main_handles_binance_errors(monkeypatch):
+    def boom():
+        raise RuntimeError("binance down")
+    monkeypatch.setattr(twr, "compute", boom)
+    with pytest.raises(SystemExit):
+        twr.main()
 
 
 # --- API surface (cache empty: no lifespan -> no scheduler -> no network) ---

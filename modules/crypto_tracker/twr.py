@@ -46,6 +46,10 @@ def symbol_for(asset):
     return config.ASSET_SYMBOLS[asset]
 
 
+def _utc_today():
+    return datetime.now(timezone.utc).date()
+
+
 def _parse_date(value):
     """A real calendar date from YYYY-MM-DD (optionally + time), else None.
 
@@ -59,13 +63,32 @@ def _parse_date(value):
         return None
 
 
+def _oversell_errors(parsed):
+    """Spot, long-only: per-asset cumulative end-of-date balance must stay >= 0.
+    `parsed` is a list of (line, date, asset, delta, note). Returns one error per
+    asset that goes negative (a sell exceeding holdings, or logged before its buy)."""
+    day_delta, day_line = {}, {}
+    for line, d, asset, delta, _ in parsed:
+        day_delta[(asset, d)] = day_delta.get((asset, d), 0.0) + delta
+        day_line[(asset, d)] = max(day_line.get((asset, d), 0), line)
+    errors, bal, flagged = [], {}, set()
+    for asset, d in sorted(day_delta):
+        bal[asset] = bal.get(asset, 0.0) + day_delta[(asset, d)]
+        if bal[asset] < -1e-9 and asset not in flagged:
+            flagged.add(asset)
+            errors.append(f"line {day_line[(asset, d)]}: {asset} oversold "
+                          f"(holdings reach {bal[asset]:.8g} on {d})")
+    return errors
+
+
 def load_portfolio():
     """Parse portfolio.csv. Reject any non-blank malformed row (with its line
     number) rather than skip it silently — a dropped flow misreports holdings,
     and a NaN/Inf delta would propagate until JSON serialization fails."""
     if not PORTFOLIO_CSV.exists():
         return []
-    rows, errors = [], []
+    today = _utc_today()
+    parsed, errors = [], []
     with PORTFOLIO_CSV.open(newline="") as f:
         reader = csv.DictReader(f)
         for row in reader:
@@ -79,6 +102,9 @@ def load_portfolio():
             if day is None:
                 errors.append(f"line {line}: invalid date {date_str!r}")
                 continue
+            if day > today:
+                errors.append(f"line {line}: future date {date_str!r}")
+                continue
             if asset not in config.ASSET_SYMBOLS:
                 errors.append(f"line {line}: unknown asset {asset!r}")
                 continue
@@ -90,16 +116,13 @@ def load_portfolio():
             if not math.isfinite(delta):
                 errors.append(f"line {line}: non-finite delta {delta_str!r}")
                 continue
-            rows.append({
-                "date": day.isoformat(),
-                "asset": asset,
-                "delta": delta,
-                "note": (row.get("note") or "").strip(),
-            })
+            parsed.append((line, day.isoformat(), asset, delta, (row.get("note") or "").strip()))
+    parsed.sort(key=lambda p: p[1])
+    if not errors:  # oversell needs the full set; skip if rows already dropped
+        errors = _oversell_errors(parsed)
     if errors:
         raise ValueError("portfolio.csv has invalid rows:\n  " + "\n  ".join(errors))
-    rows.sort(key=lambda r: r["date"])
-    return rows
+    return [{"date": d, "asset": a, "delta": x, "note": n} for _, d, a, x, n in parsed]
 
 
 def load_cache():
@@ -129,32 +152,40 @@ def save_cache(cache):
         raise
 
 
+_DAY_MS = 86_400_000
+
+
 def historical_price(symbol, on_date, cache):
     """USD-proxy close for `symbol` on YYYY-MM-DD (UTC day). Cached: immutable."""
     key = f"{symbol}:{on_date}"
     if key in cache:
         return cache[key]
-    d = datetime.strptime(on_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    start_ms = int(datetime.strptime(on_date, "%Y-%m-%d")
+                   .replace(tzinfo=timezone.utc).timestamp() * 1000)
     resp = requests.get(
         f"{BINANCE_BASE}/klines",
-        params={"symbol": symbol, "interval": "1d",
-                "startTime": int(d.timestamp() * 1000), "limit": 1},
+        params={"symbol": symbol, "interval": "1d", "startTime": start_ms, "limit": 1},
         timeout=30,
     )
     resp.raise_for_status()
     klines = resp.json()
-    if not klines:
+    # /klines returns the first candle at or after startTime, so a date before the
+    # pair was listed silently yields the listing-day candle — reject the mismatch.
+    if not klines or int(klines[0][0]) >= start_ms + _DAY_MS:
         raise RuntimeError(f"No Binance kline for {symbol} on {on_date}")
     cache[key] = float(klines[0][4])  # close
     return cache[key]
 
 
-def current_price(symbol):
+def current_prices(symbols):
+    """Live prices for several symbols in one request -> {symbol: price}."""
     resp = requests.get(
-        f"{BINANCE_BASE}/ticker/price", params={"symbol": symbol}, timeout=30
+        f"{BINANCE_BASE}/ticker/price",
+        params={"symbols": json.dumps(list(symbols), separators=(",", ":"))},
+        timeout=30,
     )
     resp.raise_for_status()
-    return float(resp.json()["price"])
+    return {row["symbol"]: float(row["price"]) for row in resp.json()}
 
 
 def balance_at(rows, on_date, asset):
@@ -208,11 +239,13 @@ def xnpv(rate, cashflows):
 def xirr(cashflows):
     """Annualized IRR via bisection in log-rate space (x = ln(1 + r)).
 
-    A fixed rate bracket caps the gain it can represent (e.g. high=1000 tops out
-    at a 76% 30-day gain), so a short window with a large gain — which implies an
-    enormous annual rate — would find no sign change and return None. Bracketing
-    on x = ln(1 + r) and expanding the upper bound resolves those. The cap keeps
-    both exp(x) and (1 + r)**t below float overflow. Returns None if unbracketed.
+    A fixed rate bracket caps the return it can represent at either end (e.g.
+    high=1000 tops out at a 76% 30-day gain; a low of r=-0.9999 can't reach a
+    >99.99% loss), so an extreme short-window gain or a near-total loss would find
+    no sign change and return None. Bracketing on x = ln(1 + r) and expanding
+    whichever bound the root lies beyond resolves both. xnpv is monotone-decreasing
+    in r, so the sign at hi says which way to grow. The cap keeps exp(x) and
+    (1 + r)**t below float overflow. Returns None if still unbracketed.
     """
     if not any(amt > 0 for _, amt in cashflows) or not any(amt < 0 for _, amt in cashflows):
         return None
@@ -226,10 +259,16 @@ def xirr(cashflows):
     lo, hi = math.log(1e-4), 1.0  # r in [-0.9999, e-1]
     f_lo, f_hi = f(lo), f(hi)
     while f_lo * f_hi > 0:
-        hi += 4.0
-        if hi >= x_cap:
-            return None
-        f_hi = f(hi)
+        if f_hi > 0:        # whole bracket sits above the root -> raise hi
+            hi += 4.0
+            if hi >= x_cap:
+                return None
+            f_hi = f(hi)
+        else:               # whole bracket sits below the root -> lower lo
+            lo -= 4.0
+            if lo <= -x_cap:
+                return None
+            f_lo = f(lo)
 
     mid = (lo + hi) / 2
     for _ in range(200):
@@ -347,20 +386,20 @@ def compute(prices=None, today=None):
     for a in assets:
         symbol_for(a)  # validate before any network call
 
-    today = today or date.today()
+    today = today or _utc_today()
     today_str = today.isoformat()
 
     persist = prices is None
     if persist:
         cache = load_cache()
-        today_prices = {symbol_for(a): current_price(symbol_for(a)) for a in assets}
+        today_prices = current_prices(symbol_for(a) for a in assets)
         prices = BinancePrices(today_str, today_prices, cache)
 
     first_date = rows[0]["date"]
     holdings, total_value = [], 0.0
     for asset in assets:
         bal = balance_at(rows, today_str, asset)
-        if bal == 0:
+        if abs(bal) < 1e-9:  # fully exited; ignore float dust
             continue
         price = prices.price(symbol_for(asset), today_str)
         total_value += bal * price
@@ -396,7 +435,7 @@ def main():
     """Standalone CLI: print the portfolio and return table."""
     try:
         data = compute()
-    except ValueError as e:
+    except (ValueError, RuntimeError, requests.RequestException) as e:
         print(e, file=sys.stderr)
         sys.exit(1)
 
