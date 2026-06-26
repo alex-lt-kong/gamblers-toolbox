@@ -2,18 +2,19 @@
 
 ## Active Status
 
-**Latest:** Addressed the `feat/crypto-tracker` review (fix commit on top of the two module commits).
-Both P1s + a robustness item fixed in `twr.py`: (1) the MWR/XIRR solver now bisects in **log-rate
-space** (`x = ln(1+r)`) with an overflow-safe cap, so short windows with large gains resolve — a
-30-day double now reports +100% MWR instead of `n/a` (old `high=1000` bracket topped out at a 76.4%
-30-day gain); (2) `load_portfolio()` now **rejects** malformed non-blank rows with CSV line numbers
-(real-date `strptime`, known asset, finite delta) instead of silently skipping or letting NaN/Inf reach
-JSON; (3) the price cache writes **atomically** (temp + `os.replace`) and treats a corrupt read as
-empty, so a truncated cache no longer bricks refreshes. Also made `compute()` take an injectable price
-provider + clock (`BinancePrices` / `compute(prices, today)`) for a deterministic end-to-end test. 103
-tests pass (+10). The P/E split-cliff finding the review re-raised is the **already-deferred**
-event-triggered item below — different module, not in scope for this branch. 4th module otherwise as
-built.
+**Latest:** Two review rounds done on `feat/crypto-tracker`, all fixes in `twr.py`. Round 1 (manual):
+log-rate-space XIRR bracket (short-window gains resolve), strict CSV validation with line numbers
+(real date / known asset / finite delta), atomic+validated price cache, injectable `compute(prices,
+today)`. Round 2 (workflow code-review, `ccdd905`) cleared 7 confirmed correctness findings: (1) XIRR
+now expands **both** brackets — a >99.99% loss resolves instead of `n/a` (round 1 only fixed the upper
+side); (2) `historical_price` rejects a `/klines` candle whose openTime is a later day (a date before
+the pair listed silently took the listing-day close); (3) `today` is **UTC** (`datetime.now(utc)`), not
+host-local; (4) `load_portfolio` rejects future-dated rows; (5) and oversell (per-asset end-of-date
+balance going negative), both with line numbers; (6) closed positions with float dust are dropped from
+holdings (`abs(bal) < 1e-9`); (7) CLI `main()` catches Binance/runtime errors. Plus batched
+`current_prices`. **112 tests pass** (+9). The P/E split-cliff finding is the **already-deferred**
+event-triggered item below — different module, out of scope. Deferred follow-ups: batch historical
+klines (cold-cache speed), cumulative-balance timeline, and the cross-module scheduler/cache dedup.
 
 **Deferred (event-triggered, not scheduled):** a stock split will put a fake cliff in the
 price panel because daily snapshots store raw `currentPrice` (`fetcher.py:46`) and are never
@@ -65,6 +66,24 @@ ai_ratios JSON-snapshot persistence; an exempt `/healthz` endpoint.
   npm registry reachable here; external UAT host is NOT (sandbox egress).
 
 ## Activity Log
+
+### 2026-06-27 — Crypto-tracker workflow code-review fixes, round 2 (branch `feat/crypto-tracker`, `ccdd905`)
+- Ran the workflow-backed `/code-review` (8 finder angles → 27 candidates → 10 confirmed after an
+  independent verifier per finding; 13 refuted, mostly real-but-non-bug duplication). All 10 in `twr.py`.
+- Fixed 7 correctness findings: (1) **XIRR lower bracket** — round 1 only expanded the upper bound, so a
+  >99.99% loss (root below `r=-0.9999`) still returned `n/a`; now expands whichever side the sign says
+  (xnpv is monotone-decreasing). (2) **Pre-listing kline** — `/klines` returns the first candle at/after
+  `startTime`, so a pre-listing date silently took the listing-day close; now rejects when `openTime`
+  lands on a later UTC day. (3) **UTC `today`** — was `date.today()` (host-local) while all pricing is
+  UTC, dropping same-day flows for hours on UTC-behind hosts. (4) **Future-dated** and (5) **oversell**
+  (per-asset end-of-date balance < 0) rows now rejected with line numbers — closing the loader's own
+  silent-drop / negative-holdings gaps. (6) **Float-dust** closed positions dropped from holdings
+  (`abs(bal) < 1e-9`). (7) CLI `main()` catches `RuntimeError`/`requests` errors, not just `ValueError`.
+- Efficiency: `current_prices` batches all tickers into one request. Deferred (logged): ranged
+  historical-kline batch (cold-cache latency), cumulative-balance timeline (O(n²) scan, negligible at
+  ~20 rows), and extracting the thrice-duplicated single-flight scheduler into `core` (cross-module).
+- +9 tests (incl. near-total-loss XIRR, future/oversell rejection with a same-day net-≥0 false-positive
+  guard, dust drop, mocked pre-listing/same-day kline, batched ticker, CLI error path). **112 pass.**
 
 ### 2026-06-27 — Crypto-tracker review fixes (branch `feat/crypto-tracker`)
 - **P1 — IRR bracket:** `xirr` bisected in `[-0.9999, 1000]`, whose upper bound represents only a
@@ -150,19 +169,5 @@ ai_ratios JSON-snapshot persistence; an exempt `/healthz` endpoint.
   `makeChip()` gives series + panel chips `role=button`/`tabindex`/`aria-pressed` + Enter/Space.
 - e2e now guards the date-axis re-homing (Volume visible→owns axis; hidden→labels move to P/E) and
   chip a11y attributes. No deterministic test for the tag-overlap case (tag pixel positions aren't exposed).
-
-### 2026-06-24 — Review `feat/bloomberg-terminal-theme`
-- Fetched and compared the four-commit branch with current `origin/main` (15 changed files);
-  `git diff --check`, Python compilation, and 75-test collection pass.
-- Found Chart.js visibility is checked through the tri-state `meta.hidden`; a newly rebuilt chart
-  has `meta.hidden === null`, so a dataset configured with `hidden: true` still gets a ghost
-  last-value tag. Use `chart.isDatasetVisible(i)` and cover reload/range rebuilds.
-- Found the last-value plugin scans backward over terminal nulls, so a series currently undefined
-  during a forecast-loss window can show a stale pre-loss value pinned to the right axis.
-- Found the two redistributed IBM Plex Mono WOFF2 files have no OFL/copyright text in the tree.
-- Full and non-E2E pytest runs timed out; `-vv` locates the stall at the first TestClient request,
-  `tests/test_app.py::test_landing_and_modules_open`, before any branch-specific assertion. The
-  same isolated test also times out on an exported `origin/main` tree, confirming it is not a
-  regression from this branch.
 
 _(Older entries moved to `MEMORY_ARCHIVE.md`.)_

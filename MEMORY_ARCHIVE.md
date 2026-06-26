@@ -2,6 +2,20 @@
 
 Older activity-log entries pruned from `MEMORY.md` (newest first).
 
+### 2026-06-24 — Review `feat/bloomberg-terminal-theme`
+- Fetched and compared the four-commit branch with current `origin/main` (15 changed files);
+  `git diff --check`, Python compilation, and 75-test collection pass.
+- Found Chart.js visibility is checked through the tri-state `meta.hidden`; a newly rebuilt chart
+  has `meta.hidden === null`, so a dataset configured with `hidden: true` still gets a ghost
+  last-value tag. Use `chart.isDatasetVisible(i)` and cover reload/range rebuilds.
+- Found the last-value plugin scans backward over terminal nulls, so a series currently undefined
+  during a forecast-loss window can show a stale pre-loss value pinned to the right axis.
+- Found the two redistributed IBM Plex Mono WOFF2 files have no OFL/copyright text in the tree.
+- Full and non-E2E pytest runs timed out; `-vv` locates the stall at the first TestClient request,
+  `tests/test_app.py::test_landing_and_modules_open`, before any branch-specific assertion. The
+  same isolated test also times out on an exported `origin/main` tree, confirming it is not a
+  regression from this branch.
+
 ### 2026-06-24 — Bloomberg-terminal theme + rename to "Gambler's Terminal" (branch `feat/bloomberg-terminal-theme`)
 - Overhauled look/feel to mimic a Bloomberg Terminal. New shared `core/static/terminal.css`
   (served at `/static/terminal.css`, linked by every page): black canvas, amber chrome, green/red
