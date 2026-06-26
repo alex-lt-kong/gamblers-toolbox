@@ -10,21 +10,31 @@ from modules.crypto_tracker import cache, twr
 TODAY = "2024-01-01"
 
 
+class FakePrices:
+    """Deterministic provider keyed by (symbol, 'YYYY-MM-DD')."""
+
+    def __init__(self, table):
+        self.table = table
+
+    def price(self, symbol, on_date):
+        return self.table[(symbol, on_date)]
+
+
 def _single_deposit():
     rows = [{"date": "2023-01-01", "asset": "BTC", "delta": 1.0, "note": ""}]
-    return rows, ["BTC"], {"BTCUSDT:2023-01-01": 100.0}, {"BTCUSDT": 200.0}
+    prices = FakePrices({("BTCUSDT", "2023-01-01"): 100.0, ("BTCUSDT", TODAY): 200.0})
+    return rows, ["BTC"], prices
 
 
 def test_twr_single_deposit_doubles():
-    rows, assets, price_cache, today = _single_deposit()
-    twr_v = twr.twr_over_range(rows, assets, "2023-01-01", TODAY, TODAY, today, price_cache)
-    assert twr_v == pytest.approx(1.0)  # 100 -> 200
+    rows, assets, prices = _single_deposit()
+    assert twr.twr_over_range(rows, assets, "2023-01-01", TODAY, prices) == pytest.approx(1.0)
 
 
 def test_mwr_equals_twr_without_interior_flows():
-    rows, assets, price_cache, today = _single_deposit()
-    twr_v = twr.twr_over_range(rows, assets, "2023-01-01", TODAY, TODAY, today, price_cache)
-    mwr_v = twr.mwr_over_range(rows, assets, "2023-01-01", TODAY, TODAY, today, price_cache)
+    rows, assets, prices = _single_deposit()
+    twr_v = twr.twr_over_range(rows, assets, "2023-01-01", TODAY, prices)
+    mwr_v = twr.mwr_over_range(rows, assets, "2023-01-01", TODAY, prices)
     assert mwr_v == pytest.approx(twr_v, abs=1e-6)
 
 
@@ -34,12 +44,30 @@ def test_twr_strips_timing_but_mwr_rewards_the_dip_buy():
         {"date": "2023-01-01", "asset": "BTC", "delta": 1.0, "note": ""},
         {"date": "2023-07-01", "asset": "BTC", "delta": 1.0, "note": "dip buy"},
     ]
-    price_cache = {"BTCUSDT:2023-01-01": 100.0, "BTCUSDT:2023-07-01": 50.0}
-    today = {"BTCUSDT": 100.0}
-    twr_v = twr.twr_over_range(rows, ["BTC"], "2023-01-01", TODAY, TODAY, today, price_cache)
-    mwr_v = twr.mwr_over_range(rows, ["BTC"], "2023-01-01", TODAY, TODAY, today, price_cache)
+    prices = FakePrices({
+        ("BTCUSDT", "2023-01-01"): 100.0,
+        ("BTCUSDT", "2023-07-01"): 50.0,
+        ("BTCUSDT", TODAY): 100.0,
+    })
+    twr_v = twr.twr_over_range(rows, ["BTC"], "2023-01-01", TODAY, prices)
+    mwr_v = twr.mwr_over_range(rows, ["BTC"], "2023-01-01", TODAY, prices)
     assert twr_v == pytest.approx(0.0, abs=1e-9)  # time-weighted: round trip = flat
     assert mwr_v is not None and mwr_v > 0  # buying the dip earns a positive IRR
+
+
+def test_short_window_large_gain_resolves_mwr():
+    # Regression: a 30-day double implies an annual IRR ~4597, which overflowed
+    # the old fixed high=1000 bracket -> MWR came back n/a. Now it resolves.
+    rows = [{"date": "2024-01-01", "asset": "BTC", "delta": 1.0, "note": ""}]
+    prices = FakePrices({("BTCUSDT", "2024-01-01"): 100.0, ("BTCUSDT", "2024-01-31"): 200.0})
+    mwr_v = twr.mwr_over_range(rows, ["BTC"], "2024-01-01", "2024-01-31", prices)
+    assert mwr_v is not None and mwr_v == pytest.approx(1.0, abs=1e-3)  # 100% cumulative
+
+
+def test_xirr_resolves_extreme_short_window_rate():
+    flows = [(date(2024, 1, 1), -100.0), (date(2024, 1, 31), 200.0)]
+    r = twr.xirr(flows)
+    assert r is not None and r == pytest.approx(2 ** (365 / 30) - 1, rel=1e-3)
 
 
 def test_xirr_recovers_known_rate():
@@ -76,6 +104,61 @@ def test_balance_at_is_cumulative_per_asset():
 def test_unknown_asset_rejected():
     with pytest.raises(ValueError):
         twr.symbol_for("DOGE")
+
+
+# --- CSV validation (reject malformed non-blank rows with line numbers) ---
+
+def _write_csv(monkeypatch, tmp_path, body):
+    p = tmp_path / "portfolio.csv"
+    p.write_text(body)
+    monkeypatch.setattr(twr, "PORTFOLIO_CSV", p)
+    return p
+
+
+def test_load_portfolio_blank_lines_skipped(monkeypatch, tmp_path):
+    _write_csv(monkeypatch, tmp_path, "date,asset,delta,note\n2024-01-01,BTC,1.0,seed\n\n")
+    assert len(twr.load_portfolio()) == 1
+
+
+@pytest.mark.parametrize("bad,needle", [
+    ("2024-13-45,BTC,1.0,x", "invalid date"),     # passes the regex shape, not a real date
+    ("2024-01-01,DOGE,1.0,x", "unknown asset"),
+    ("2024-01-01,BTC,abc,x", "non-numeric delta"),
+    ("2024-01-01,BTC,nan,x", "non-finite delta"),
+    ("2024-01-01,BTC,inf,x", "non-finite delta"),
+])
+def test_load_portfolio_rejects_bad_row_with_line_number(monkeypatch, tmp_path, bad, needle):
+    _write_csv(monkeypatch, tmp_path, f"date,asset,delta,note\n2024-01-01,BTC,1.0,ok\n{bad}\n")
+    with pytest.raises(ValueError) as e:
+        twr.load_portfolio()
+    assert needle in str(e.value) and "line 3" in str(e.value)
+
+
+# --- Price cache I/O (atomic write, corrupt read recovers) ---
+
+def test_cache_roundtrip_and_corrupt_recovers(monkeypatch, tmp_path):
+    cache_file = tmp_path / ".price_cache.json"
+    monkeypatch.setattr(twr, "CACHE_FILE", cache_file)
+    monkeypatch.setattr(twr, "ROOT", tmp_path)  # temp file lands beside it for os.replace
+    twr.save_cache({"BTCUSDT:2024-01-01": 42.0})
+    assert twr.load_cache() == {"BTCUSDT:2024-01-01": 42.0}
+    cache_file.write_text('{"BTCUSDT:2024-01-01": 42.0')  # truncated mid-write
+    assert twr.load_cache() == {}  # recovers instead of bricking future refreshes
+
+
+# --- compute() end to end (injected provider + clock, no network/disk) ---
+
+def test_compute_end_to_end_is_deterministic(monkeypatch, tmp_path):
+    _write_csv(monkeypatch, tmp_path, "date,asset,delta,note\n2024-01-01,BTC,1.0,seed\n")
+    prices = FakePrices({("BTCUSDT", "2024-01-01"): 100.0, ("BTCUSDT", "2024-01-31"): 200.0})
+    data = twr.compute(prices=prices, today=date(2024, 1, 31))
+    assert data["as_of"] == "2024-01-31"
+    assert data["total_value"] == pytest.approx(200.0)
+    assert data["holdings"] == [{"asset": "BTC", "qty": 1.0, "price": 200.0, "value": 200.0}]
+    alltime = next(r for r in data["ranges"] if r["name"] == "All-time")
+    assert alltime["twr"] == pytest.approx(1.0, abs=1e-3)  # 30-day double
+    assert alltime["mwr"] == pytest.approx(1.0, abs=1e-3)
+    assert alltime["cagr"] is None  # under a year -> not annualized
 
 
 # --- API surface (cache empty: no lifespan -> no scheduler -> no network) ---
