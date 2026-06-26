@@ -1,0 +1,5 @@
+# Real portfolio (copy from portfolio.sample.csv) — holdings stay local
+portfolio.csv
+
+# Regenerable historical-price cache (Binance klines are immutable)
+.price_cache.json
