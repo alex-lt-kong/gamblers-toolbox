@@ -9,6 +9,7 @@ def test_landing_and_modules_open(make_app):
     assert c.get("/").status_code == 200
     assert c.get("/pe-monitor/").status_code == 200
     assert c.get("/ai-ratios/").status_code == 200
+    assert c.get("/crypto-tracker/").status_code == 200
     assert c.get("/docs").status_code == 200
 
 
@@ -30,13 +31,13 @@ def test_static_and_favicon(make_app):
 def test_openapi_tags_and_dashboards_excluded(make_app):
     oj = TestClient(make_app()).get("/openapi.json").json()
     tags = {t for p in oj["paths"].values() for op in p.values() for t in op.get("tags", [])}
-    assert {"P/E Monitor", "AI Ratios"} <= tags
+    assert {"P/E Monitor", "AI Ratios", "Crypto Tracker"} <= tags
     assert "/pe-monitor/" not in oj["paths"]  # dashboard is include_in_schema=False
 
 
 def test_discovery_order_and_unique_slugs():
     slugs = [m.slug for m in discover_modules()]
-    assert slugs == ["pe-monitor", "averaging-calc", "ai-ratios"]  # ordered by Module.order
+    assert slugs == ["pe-monitor", "averaging-calc", "ai-ratios", "crypto-tracker"]  # ordered by Module.order
     assert len(slugs) == len(set(slugs))
 
 

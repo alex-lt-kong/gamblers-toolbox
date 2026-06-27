@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+{% macro pct(x) -%}
+{%- if x is none -%}<span class="muted">n/a</span>
+{%- else -%}<span class="{{ 'up' if x >= 0 else 'down' }}">{{ "%+.2f%%"|format(x * 100) }}</span>
+{%- endif -%}
+{%- endmacro %}
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Crypto Tracker</title>
+<meta name="theme-color" content="#000000">
+<link rel="stylesheet" href="/static/terminal.css">
+<style>
+.term { max-width: 760px; }
+.header-actions { display: flex; align-items: center; gap: 12px; }
+.holdings td:nth-child(n+2), .returns td:nth-child(n+2) { text-align: right; }
+.holdings td:first-child code { color: var(--cyan); }
+tfoot td { font-weight: 700; color: var(--amber); background: var(--panel-2); border-top: 1px solid var(--border-strong); }
+.returns td:first-child { color: var(--amber); font-weight: 700; }
+.grids { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+@media (max-width: 640px) { .grids { grid-template-columns: 1fr; } }
+.ts { color: var(--muted); font-size: 12px; margin: 10px 2px; font-variant-numeric: tabular-nums; }
+.notes { color: var(--muted); font-size: 11px; margin: 12px 2px 0; line-height: 1.6; }
+.warn { color: var(--yellow); }
+</style>
+</head>
+<body>
+<div class="term">
+  <header class="term-header">
+    <div class="brand">🪙 CRYPTO TRACKER</div>
+    <div class="header-actions">
+      <button id="refresh-btn" onclick="refresh()">Refresh</button>
+      <a class="nav-link" href="/">← Terminal</a>
+    </div>
+  </header>
+
+  <div class="term-subbar">Multi-Asset Crypto Portfolio — TWR / MWR / CAGR</div>
+
+  <p class="ts">
+  {% if computed_at %}Updated: <span id="ts" data-ts="{{ computed_at }}">{{ computed_at }}</span>{% if as_of %} · prices as of {{ as_of }}{% endif %}{% else %}No data yet — first computation runs in the background.{% endif %}
+  </p>
+  {% if last_error %}
+  <p class="notes warn">&#9888; {{ last_error }}.</p>
+  {% endif %}
+
+  {% if holdings %}
+  <div class="grids">
+    <div>
+      <table class="holdings">
+      <thead><tr><th>Asset</th><th>Quantity</th><th>Price</th><th>Value</th></tr></thead>
+      <tbody>
+      {% for h in holdings %}
+      <tr>
+      <td><code>{{ h.asset }}</code></td>
+      <td>{{ ("%.8f"|format(h.qty)).rstrip('0').rstrip('.') }}</td>
+      <td>${{ "{:,.2f}".format(h.price) }}</td>
+      <td>${{ "{:,.2f}".format(h.value) }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+      <tfoot>
+      <tr><td>Total</td><td></td><td></td><td>${{ "{:,.2f}".format(total_value) }}</td></tr>
+      </tfoot>
+      </table>
+    </div>
+    <div>
+      <table class="returns">
+      <thead><tr><th>Range</th><th>TWR</th><th>MWR</th><th>CAGR</th></tr></thead>
+      <tbody>
+      {% for r in ranges %}
+      <tr>
+      <td>{{ r.name }}</td>
+      <td>{{ pct(r.twr) }}</td>
+      <td>{{ pct(r.mwr) }}</td>
+      <td>{{ pct(r.cagr) }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+      </table>
+    </div>
+  </div>
+  {% else %}
+  <p class="notes">Click Refresh in a moment once the first computation finishes.</p>
+  {% endif %}
+
+  <p class="notes">
+  <b>TWR</b> (time-weighted) strips out deposit timing — the return of the assets themselves.
+  <b>MWR</b> (money-weighted / IRR) credits <i>when</i> you added, so buying dips beats it.
+  <b>CAGR</b> annualizes TWR (windows under ~1y show n/a). Prices: Binance USDT pairs as a USD proxy.
+  </p>
+</div>
+
+<footer class="term-status">
+  <span class="k">FN</span> <span class="muted">CRYPTO-TRACKER</span>
+  <span class="spacer"></span>
+  <span class="muted">GAMBLER'S TERMINAL</span>
+</footer>
+
+<script>
+const API_BASE = "{{ api_base }}";
+async function refresh() {
+  const btn = document.getElementById('refresh-btn');
+  btn.disabled = true; btn.textContent = 'Computing…';
+  try { await fetch(API_BASE + '/refresh', {method: 'POST'}); location.reload(); }
+  finally { btn.disabled = false; btn.textContent = 'Refresh'; }
+}
+const el = document.getElementById('ts');
+if (el) {
+  const d = new Date(el.dataset.ts);
+  const off = -d.getTimezoneOffset(), sign = off >= 0 ? '+' : '-';
+  const oh = String(Math.floor(Math.abs(off)/60)).padStart(2,'0');
+  const om = String(Math.abs(off)%60).padStart(2,'0');
+  el.textContent = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+'T'+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')+':'+String(d.getSeconds()).padStart(2,'0')+sign+oh+':'+om;
+}
+</script>
+</body>
+</html>

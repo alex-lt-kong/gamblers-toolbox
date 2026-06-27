@@ -8,6 +8,7 @@ One FastAPI app: a landing page mounting each tool as a self-contained **module*
 | P/E Monitor | `/pe-monitor` | Forward & TTM P/E watchlist. |
 | Pyramiding Calculator | `/averaging-calc` | Shares to add to move a position's P/L% to a target. |
 | AI Ratios | `/ai-ratios` | S&P 500 AI-exposure share. |
+| Crypto Tracker | `/crypto-tracker` | Multi-asset crypto portfolio TWR / MWR / CAGR from on-chain flows. |
 
 ## Run
 
@@ -15,6 +16,7 @@ One FastAPI app: a landing page mounting each tool as a self-contained **module*
 pip install -r requirements.txt
 cp config.sample.toml config.toml
 cp modules/pe_monitor/config.sample.toml modules/pe_monitor/config.toml
+cp modules/crypto_tracker/portfolio.sample.csv modules/crypto_tracker/portfolio.csv
 python -m core --config config.toml
 ```
 
